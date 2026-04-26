@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bokiofaktura med Tidrapport GCAL/Outlook</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #f5f7fb;
+        color: #1f2937;
+      }
+      .container {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 24px 16px 48px;
+      }
+      h1 {
+        margin-top: 0;
+        margin-bottom: 8px;
+      }
+      .intro {
+        margin-top: 0;
+        color: #4b5563;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #dbe1ea;
+        border-radius: 10px;
+        padding: 14px;
+        margin-top: 14px;
+      }
+      label {
+        display: block;
+        margin-top: 10px;
+        font-size: 14px;
+      }
+      input,
+      select,
+      textarea,
+      button {
+        width: 100%;
+        margin-top: 6px;
+        font-size: 14px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+      }
+      button {
+        background: #1d4ed8;
+        color: #fff;
+        border: 0;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #1e40af;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 12px;
+        margin-top: 10px;
+        align-items: end;
+      }
+      .help {
+        font-size: 12px;
+        color: #6b7280;
+      }
+      .status {
+        white-space: pre-wrap;
+      }
+      .hidden {
+        display: none;
+      }
+      pre {
+        overflow: auto;
+        background: #0f172a;
+        color: #e2e8f0;
+        padding: 12px;
+        border-radius: 8px;
+      }
+      @media (max-width: 720px) {
+        .row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <h1>Bokiofaktura med Tidrapport GCAL/Outlook</h1>
+      <p class="intro">
+        Minimal frontend-MVP i en fil. Klistra in token, hamta bolag/kund om API:t
+        stodjer det, eller ange ID:n manuellt och skapa fakturautkast.
+      </p>
+
+      <section class="card">
+        <h2>1) API och auth</h2>
+        <label>
+          Bokio API base
+          <input id="apiBase" type="text" value="https://api.bokio.se/v1" />
+        </label>
+        <label>
+          BOKIO_API_TOKEN
+          <input
+            id="apiToken"
+            type="password"
+            placeholder="Klistra in eller autofill fran Bitwarden/1Password"
+            autocomplete="off"
+          />
+        </label>
+        <label>
+          Bokio-lank (valfritt, for att auto-extrahera ID)
+          <input
+            id="bokioUrl"
+            type="text"
+            placeholder="https://app.bokio.se/.../companies/<id>/.../customers/<id>"
+          />
+        </label>
+        <button id="btnParseUrl" type="button">Extrahera ID fran lank</button>
+        <p class="help">
+          Token sparas inte i localStorage. Endast in-memory under sessionen.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>2) COMPANY_ID / CUSTOMER_ID</h2>
+        <label>
+          COMPANY_ID (manuell fallback)
+          <input id="companyIdInput" type="text" placeholder="t.ex. 123456" />
+        </label>
+        <label>
+          CUSTOMER_ID (manuell fallback)
+          <input id="customerIdInput" type="text" placeholder="t.ex. 789012" />
+        </label>
+
+        <div class="row">
+          <button id="btnLoadCompanies" type="button">loadCompanies()</button>
+          <select id="companySelect">
+            <option value="">Valj foretag...</option>
+          </select>
+        </div>
+        <div class="row">
+          <button id="btnLoadCustomers" type="button">
+            loadCustomers(companyId)
+          </button>
+          <select id="customerSelect">
+            <option value="">Valj kund...</option>
+          </select>
+        </div>
+        <p class="help">
+          Om list-endpoints saknas (404), anvand manuella ID-falt ovan.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>3) createInvoice(...)</h2>
+        <label>
+          Fakturadatum
+          <input id="invoiceDate" type="date" />
+        </label>
+        <label>
+          Forfallodatum
+          <input id="dueDate" type="date" />
+        </label>
+        <label>
+          Rader (JSON array)
+          <textarea id="lineItems" rows="8"></textarea>
+        </label>
+        <button id="btnCreateInvoice" type="button">createInvoice(...)</button>
+      </section>
+
+      <section id="status" class="card status" aria-live="polite">Klar.</section>
+
+      <section id="corsFallback" class="card hidden">
+        <h2>CORS fallback</h2>
+        <p id="corsMessage"></p>
+        <pre id="curlExample"></pre>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        const el = {
+          apiBase: document.getElementById("apiBase"),
+          apiToken: document.getElementById("apiToken"),
+          bokioUrl: document.getElementById("bokioUrl"),
+          companyIdInput: document.getElementById("companyIdInput"),
+          customerIdInput: document.getElementById("customerIdInput"),
+          companySelect: document.getElementById("companySelect"),
+          customerSelect: document.getElementById("customerSelect"),
+          invoiceDate: document.getElementById("invoiceDate"),
+          dueDate: document.getElementById("dueDate"),
+          lineItems: document.getElementById("lineItems"),
+          status: document.getElementById("status"),
+          corsFallback: document.getElementById("corsFallback"),
+          corsMessage: document.getElementById("corsMessage"),
+          curlExample: document.getElementById("curlExample"),
+          btnParseUrl: document.getElementById("btnParseUrl"),
+          btnLoadCompanies: document.getElementById("btnLoadCompanies"),
+          btnLoadCustomers: document.getElementById("btnLoadCustomers"),
+          btnCreateInvoice: document.getElementById("btnCreateInvoice"),
+        };
+
+        const now = new Date();
+        const due = new Date(now);
+        due.setDate(now.getDate() + 30);
+        el.invoiceDate.value = formatDate(now);
+        el.dueDate.value = formatDate(due);
+        el.lineItems.value = JSON.stringify(
+          [
+            {
+              description: "2026-04-15 AcmeCorp Konsulttjanster",
+              quantity: 8,
+              unit: "h",
+              unitPrice: 1200,
+              taxRate: 25.0,
+              productType: 0,
+              itemType: 0,
+            },
+          ],
+          null,
+          2
+        );
+
+        el.btnParseUrl.addEventListener("click", parseIdsFromUrl);
+        el.btnLoadCompanies.addEventListener("click", () => loadCompanies());
+        el.btnLoadCustomers.addEventListener("click", () =>
+          loadCustomers(getCompanyId())
+        );
+        el.btnCreateInvoice.addEventListener("click", () => createInvoice());
+        el.companySelect.addEventListener("change", () => {
+          if (el.companySelect.value) el.companyIdInput.value = el.companySelect.value;
+        });
+        el.customerSelect.addEventListener("change", () => {
+          if (el.customerSelect.value) el.customerIdInput.value = el.customerSelect.value;
+        });
+
+        function getConfig() {
+          return {
+            apiBase: el.apiBase.value.trim().replace(/\/$/, ""),
+            token: el.apiToken.value.trim(),
+          };
+        }
+
+        function getCompanyId() {
+          return (el.companyIdInput.value.trim() || el.companySelect.value || "").trim();
+        }
+
+        function getCustomerId() {
+          return (el.customerIdInput.value.trim() || el.customerSelect.value || "").trim();
+        }
+
+        async function bokioFetch(path, options) {
+          const { apiBase, token } = getConfig();
+          if (!token) throw new Error("Saknar BOKIO_API_TOKEN.");
+
+          const requestInit = {
+            method: options && options.method ? options.method : "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+          };
+
+          if (options && options.body) {
+            requestInit.body = JSON.stringify(options.body);
+          }
+
+          try {
+            const response = await fetch(`${apiBase}${path}`, requestInit);
+            const text = await response.text();
+            const payload = safeJsonParse(text);
+
+            if (!response.ok) {
+              const err = new Error(
+                `API-fel ${response.status}: ${
+                  (payload && (payload.message || payload.error)) || text || "Okant fel"
+                }`
+              );
+              err.code = "HTTP_ERROR";
+              err.status = response.status;
+              err.path = path;
+              err.method = requestInit.method;
+              err.body = options && options.body ? options.body : null;
+              throw err;
+            }
+            return payload || {};
+          } catch (error) {
+            if (error instanceof TypeError) {
+              const corsErr = new Error("Direktanrop blockerat (trolig CORS).");
+              corsErr.code = "CORS_BLOCKED";
+              corsErr.path = path;
+              corsErr.method = requestInit.method;
+              corsErr.body = options && options.body ? options.body : null;
+              throw corsErr;
+            }
+            throw error;
+          }
+        }
+
+        async function loadCompanies() {
+          clearCorsFallback();
+          setStatus("Laddar foretag...");
+          try {
+            const payload = await bokioFetch("/companies");
+            const companies = normalizeCompanies(payload);
+            fillSelect(el.companySelect, companies, "Valj foretag...");
+            if (companies.length > 0) el.companyIdInput.value = companies[0].id;
+            setStatus(`Hamtade ${companies.length} foretag.`);
+          } catch (error) {
+            handleError(error, null, null, "companies");
+          }
+        }
+
+        async function loadCustomers(companyId) {
+          clearCorsFallback();
+          if (!companyId) {
+            setStatus("Ange eller valj COMPANY_ID innan loadCustomers(companyId).");
+            return;
+          }
+          setStatus(`Laddar kunder for COMPANY_ID=${companyId}...`);
+          try {
+            const payload = await bokioFetch(`/companies/${companyId}/customers`);
+            const customers = normalizeCustomers(payload);
+            fillSelect(el.customerSelect, customers, "Valj kund...");
+            if (customers.length > 0) el.customerIdInput.value = customers[0].id;
+            setStatus(`Hamtade ${customers.length} kunder.`);
+          } catch (error) {
+            handleError(error, null, companyId, "customers");
+          }
+        }
+
+        async function createInvoice() {
+          clearCorsFallback();
+          const companyId = getCompanyId();
+          const customerId = getCustomerId();
+          if (!companyId || !customerId) {
+            setStatus("Ange COMPANY_ID och CUSTOMER_ID innan createInvoice(...).");
+            return;
+          }
+
+          let lineItems;
+          try {
+            lineItems = JSON.parse(el.lineItems.value);
+            if (!Array.isArray(lineItems) || lineItems.length === 0) {
+              throw new Error("lineItems maste vara en icke-tom JSON-array.");
+            }
+          } catch (error) {
+            setStatus(`Fel i lineItems JSON: ${error.message}`);
+            return;
+          }
+
+          const payload = {
+            customerId: customerId,
+            invoiceDate: el.invoiceDate.value || formatDate(new Date()),
+            dueDate: el.dueDate.value || formatDate(new Date()),
+            currency: "SEK",
+            lineItems: lineItems,
+            footerText: "Demo från Bokiofaktura med Tidrapport GCAL/Outlook",
+          };
+
+          setStatus("Skapar fakturautkast...");
+          try {
+            const result = await bokioFetch(`/companies/${companyId}/invoices`, {
+              method: "POST",
+              body: payload,
+            });
+            setStatus(
+              [
+                "Fakturautkast skapat.",
+                `Company ID: ${companyId}`,
+                `Customer ID: ${customerId}`,
+                `Response: ${JSON.stringify(result, null, 2)}`,
+              ].join("\n")
+            );
+          } catch (error) {
+            handleError(error, payload, companyId, "invoice");
+          }
+        }
+
+        function parseIdsFromUrl() {
+          const url = el.bokioUrl.value.trim();
+          if (!url) {
+            setStatus("Klistra in en Bokio-lank forst.");
+            return;
+          }
+
+          const companyMatch = url.match(/companies\/([^\/\?\#]+)/i);
+          const customerMatch = url.match(/customers\/([^\/\?\#]+)/i);
+          if (companyMatch && companyMatch[1]) el.companyIdInput.value = companyMatch[1];
+          if (customerMatch && customerMatch[1]) el.customerIdInput.value = customerMatch[1];
+
+          if (companyMatch || customerMatch) {
+            setStatus(
+              `Extraherat: COMPANY_ID=${el.companyIdInput.value || "-"}, CUSTOMER_ID=${
+                el.customerIdInput.value || "-"
+              }`
+            );
+          } else {
+            setStatus("Kunde inte hitta company/customer-id i lankens path.");
+          }
+        }
+
+        function handleError(error, body, companyId, phase) {
+          if (error && error.code === "CORS_BLOCKED") {
+            showCorsFallback(error, body, companyId);
+            setStatus("Anrop stoppades i browsern (CORS). Se CORS fallback nedan.");
+            return;
+          }
+
+          if (error && error.code === "HTTP_ERROR" && error.status === 404) {
+            if (phase === "companies" || phase === "customers") {
+              setStatus(
+                "List-endpoint verkar saknas (404). Anvand manuella COMPANY_ID/CUSTOMER_ID och kor createInvoice(...)."
+              );
+              return;
+            }
+          }
+          setStatus((error && error.message) || "Okant fel.");
+        }
+
+        function showCorsFallback(error, body, companyId) {
+          const { apiBase } = getConfig();
+          const path = error.path || (companyId ? `/companies/${companyId}/invoices` : "/companies");
+          const method = error.method || "GET";
+          const curlBody = body || error.body;
+          const bodyString = curlBody ? `-d '${JSON.stringify(curlBody)}'` : "";
+          const curl = [
+            `curl -X ${method} \\`,
+            `  "${apiBase}${path}" \\`,
+            `  -H "Authorization: Bearer <DIN_TOKEN>" \\`,
+            `  -H "Content-Type: application/json" \\`,
+            bodyString,
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          el.corsMessage.textContent =
+            "Detta ser ut som en CORS-blockering. For demo: verifiera anropet med curl eller en lokal proxy.";
+          el.curlExample.textContent = curl;
+          el.corsFallback.classList.remove("hidden");
+        }
+
+        function clearCorsFallback() {
+          el.corsFallback.classList.add("hidden");
+          el.corsMessage.textContent = "";
+          el.curlExample.textContent = "";
+        }
+
+        function setStatus(text) {
+          el.status.textContent = text;
+        }
+
+        function fillSelect(selectEl, items, placeholder) {
+          selectEl.innerHTML = "";
+          const first = document.createElement("option");
+          first.value = "";
+          first.textContent = placeholder;
+          selectEl.appendChild(first);
+
+          items.forEach((item) => {
+            const option = document.createElement("option");
+            option.value = item.id;
+            option.textContent = `${item.name} (${item.id})`;
+            selectEl.appendChild(option);
+          });
+        }
+
+        function normalizeCompanies(payload) {
+          const list =
+            (Array.isArray(payload) && payload) ||
+            payload.companies ||
+            payload.data ||
+            payload.items ||
+            [];
+          return list
+            .map((x) => ({
+              id: String(x.id || x.companyId || x.companyID || ""),
+              name: x.name || x.companyName || "Okant foretag",
+            }))
+            .filter((x) => x.id);
+        }
+
+        function normalizeCustomers(payload) {
+          const list =
+            (Array.isArray(payload) && payload) ||
+            payload.customers ||
+            payload.data ||
+            payload.items ||
+            [];
+          return list
+            .map((x) => ({
+              id: String(x.id || x.customerId || x.customerID || ""),
+              name: x.name || x.customerName || "Okand kund",
+            }))
+            .filter((x) => x.id);
+        }
+
+        function safeJsonParse(text) {
+          if (!text) return null;
+          try {
+            return JSON.parse(text);
+          } catch (_err) {
+            return null;
+          }
+        }
+
+        function formatDate(date) {
+          const yyyy = date.getFullYear();
+          const mm = String(date.getMonth() + 1).padStart(2, "0");
+          const dd = String(date.getDate()).padStart(2, "0");
+          return `${yyyy}-${mm}-${dd}`;
+        }
+
+        window.loadCompanies = loadCompanies;
+        window.loadCustomers = loadCustomers;
+        window.createInvoice = createInvoice;
+      })();
+    </script>
+  </body>
+</html>
