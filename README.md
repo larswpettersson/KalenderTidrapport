@@ -84,6 +84,41 @@ Exempel:
 - `yyyy-mm` är obligatorisk period, t.ex. `2026-04`
 - `prefix` är valfritt och filtrerar på ämnesradens början, t.ex. `AcmeCorp`
 
+## Exempel från webbdemon (Bokiofaktura)
+
+I webbdemon kan du klistra in en Bokio-kundlänk för att fylla i ID-fälten automatiskt.
+
+Exempel på länkformat:
+
+```text
+https://app.bokio.se/<company_id>/invoicing/customers/view/<customer_id>
+```
+
+Exempel på flöde i sidan:
+
+1. Klistra in länken i fältet `Bokio-länk`.
+2. Klicka på `Extrahera ID från länk`.
+3. Kontrollera att `COMPANY_ID` och `CUSTOMER_ID` fylls i.
+4. Lägg till `BOKIO_API_TOKEN` och kör `createInvoice(...)`.
+
+## ACME-exempel (Google Calendar -> faktura)
+
+Det finns ett färdigt exempel i bilden `ACME Google Calendar exempel.png` som visar aktiviteter i april 2026.
+Du kan skapa fakturaunderlag för detta exempel med:
+
+```bash
+./fakturera_kund.sh 2026-04 ACME
+```
+
+Kalendern finns här:
+
+[Google Calendar - ACME-exempel](https://calendar.google.com/calendar/u/1?cid=Y181MzdjMjllOWMyYjFjODUzMzExNTQ5ODUzZjRhYTFmMTk1OTc4ZDZlZGI3NDY4NzFlOWJmODVhZGUwZTFjMTkxQGdyb3VwLmNhbGVuZGFyLmdvb2dsZS5jb20)
+
+Gå till april, vecka 17 (2026) för att se samma underlag som i exemplet.
+
+Poängen med flödet är att du kan fakturera eget arbete med stöd av tiderna i schemat och dagens möten.
+Det gör det enklare att dokumentera både enligt plan och enligt faktiskt utfall vid dagens slut.
+
 ## Manuell körning (felsökning)
 
 Testa datasteg 1 separat:
