@@ -1,6 +1,6 @@
-# Tidrapport -> Bokio fakturautkast
+# Kalender -> Tidrapport -> Bokio fakturautkast
 
-Detta projekt tar tid från en ICS-kalender, filtrerar på period och valfritt kundprefix, och skapar ett fakturautkast i Bokio.
+Detta projekt tar tid från en ICS-kalender, filtrerar på period och valfritt kundprefix, och skapar ett underlag för tidrapport i t.ex. Agresso och om man vill ett fakturautkast i Bokio.
 
 ## Filer
 
@@ -86,7 +86,7 @@ Exempel:
 
 ## Exempel från webbdemon (Bokiofaktura)
 
-I webbdemon kan du klistra in en Bokio-kundlänk för att fylla i ID-fälten automatiskt.
+I [webbdemon](https://www.larswpettersson.se/projects/fakturera-tid-med-bokio) kan du klistra in en Bokio-kundlänk för att fylla i ID-fälten automatiskt.
 
 Exempel på länkformat:
 
@@ -117,7 +117,7 @@ Kalendern finns här:
 Gå till april, vecka 17 (2026) för att se samma underlag som i exemplet.
 
 Poängen med flödet är att du kan fakturera eget arbete med stöd av tiderna i schemat och dagens möten.
-Det gör det enklare att dokumentera både enligt plan och enligt faktiskt utfall vid dagens slut.
+Det gör det enklare att tidrapportera både enligt plan och enligt faktiskt utfall vid dagens slut.
 
 Exempelbilder:
 
