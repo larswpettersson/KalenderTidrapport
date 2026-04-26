@@ -119,6 +119,12 @@ Gå till april, vecka 17 (2026) för att se samma underlag som i exemplet.
 Poängen med flödet är att du kan fakturera eget arbete med stöd av tiderna i schemat och dagens möten.
 Det gör det enklare att dokumentera både enligt plan och enligt faktiskt utfall vid dagens slut.
 
+Exempelbilder:
+
+![ACME Google Calendar exempel](ACME%20Google%20Calendar%20exempel.png)
+
+![Bokio Faktura ACME exempel](Bokio%20Faktura%20ACME%20exempel.png)
+
 ## Manuell körning (felsökning)
 
 Testa datasteg 1 separat:

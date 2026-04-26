@@ -36,3 +36,13 @@ If browser blocks Bokio API calls:
 - Token is only kept in memory.
 - Token is not stored in localStorage.
 - For production use, move API calls to backend.
+
+## Example images
+
+Google Calendar source example (ACME, week 17 in April 2026):
+
+![ACME Google Calendar example](../../ACME%20Google%20Calendar%20exempel.png)
+
+Bokio invoice draft example based on the same period:
+
+![Bokio invoice ACME example](../../Bokio%20Faktura%20ACME%20exempel.png)
