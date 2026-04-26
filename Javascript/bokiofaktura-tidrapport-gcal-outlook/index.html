@@ -76,6 +76,29 @@
       .hidden {
         display: none;
       }
+      .toast {
+        position: sticky;
+        top: 8px;
+        z-index: 20;
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #dbe1ea;
+        background: #eef2ff;
+        color: #1e3a8a;
+        font-weight: 600;
+        white-space: pre-wrap;
+      }
+      .toast.error {
+        background: #fef2f2;
+        border-color: #fecaca;
+        color: #991b1b;
+      }
+      .toast.success {
+        background: #ecfdf5;
+        border-color: #a7f3d0;
+        color: #065f46;
+      }
       pre {
         overflow: auto;
         background: #0f172a;
@@ -92,6 +115,8 @@
   </head>
   <body>
     <main class="container">
+      <div id="flashStatus" class="toast hidden" aria-live="assertive"></div>
+
       <h1>Bokiofaktura med Tidrapport GCAL/Outlook</h1>
       <p class="intro">
         Minimal frontend-MVP i en fil. Klistra in token, hamta bolag/kund om API:t
@@ -197,6 +222,7 @@
           dueDate: document.getElementById("dueDate"),
           lineItems: document.getElementById("lineItems"),
           status: document.getElementById("status"),
+          flashStatus: document.getElementById("flashStatus"),
           corsFallback: document.getElementById("corsFallback"),
           corsMessage: document.getElementById("corsMessage"),
           curlExample: document.getElementById("curlExample"),
@@ -376,7 +402,8 @@
                 `Company ID: ${companyId}`,
                 `Customer ID: ${customerId}`,
                 `Response: ${JSON.stringify(result, null, 2)}`,
-              ].join("\n")
+              ].join("\n"),
+              "success"
             );
           } catch (error) {
             handleError(error, payload, companyId, "invoice");
@@ -409,7 +436,7 @@
         function handleError(error, body, companyId, phase) {
           if (error && error.code === "CORS_BLOCKED") {
             showCorsFallback(error, body, companyId);
-            setStatus("Anrop stoppades i browsern (CORS). Se CORS fallback nedan.");
+            setStatus("Anrop stoppades i browsern (CORS). Se CORS fallback nedan.", "error");
             return;
           }
 
@@ -417,11 +444,11 @@
             if (phase === "companies" || phase === "customers") {
               setStatus(
                 "List-endpoint verkar saknas (404). Anvand manuella COMPANY_ID/CUSTOMER_ID och kor createInvoice(...)."
-              );
+              , "error");
               return;
             }
           }
-          setStatus((error && error.message) || "Okant fel.");
+          setStatus((error && error.message) || "Okant fel.", "error");
         }
 
         function showCorsFallback(error, body, companyId) {
@@ -452,8 +479,12 @@
           el.curlExample.textContent = "";
         }
 
-        function setStatus(text) {
+        function setStatus(text, level) {
+          const tone = level || "info";
           el.status.textContent = text;
+          el.flashStatus.textContent = text;
+          el.flashStatus.className = `toast ${tone}`;
+          el.flashStatus.classList.remove("hidden");
         }
 
         function fillSelect(selectEl, items, placeholder) {
