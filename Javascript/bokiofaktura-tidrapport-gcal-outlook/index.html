@@ -288,24 +288,70 @@
         async function bokioFetch(path, options) {
           const { apiBase, token } = getConfig();
           if (!token) throw new Error("Saknar BOKIO_API_TOKEN.");
-
-          const requestInit = {
-            method: options && options.method ? options.method : "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              "Content-Type": "application/json",
-            },
-          };
-
-          if (options && options.body) {
-            requestInit.body = JSON.stringify(options.body);
-          }
+          const method = options && options.method ? options.method : "GET";
+          const proxyMode = isAppsScriptProxy(apiBase);
 
           try {
+            if (proxyMode) {
+              // Apps Script-friendly payload: avoid Authorization/custom headers to reduce CORS/preflight issues.
+              const proxyPayload = {
+                token: token,
+                method: method,
+                path: path,
+                body: options && options.body ? options.body : undefined,
+              };
+
+              const response = await fetch(apiBase, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "text/plain;charset=utf-8",
+                },
+                body: JSON.stringify(proxyPayload),
+              });
+
+              const text = await response.text();
+              const payload = safeJsonParse(text);
+              if (!payload) {
+                const err = new Error("Ogiltigt svar från Apps Script-proxy.");
+                err.code = "PROXY_ERROR";
+                err.path = path;
+                err.method = method;
+                err.body = proxyPayload;
+                throw err;
+              }
+
+              if (!payload.ok) {
+                const msg =
+                  (payload.body && (payload.body.message || payload.body.error)) ||
+                  payload.raw ||
+                  payload.error ||
+                  "Proxy/API-fel";
+                const err = new Error(`API-fel ${payload.status || ""}: ${msg}`);
+                err.code = "HTTP_ERROR";
+                err.status = payload.status || 500;
+                err.path = path;
+                err.method = method;
+                err.body = proxyPayload;
+                throw err;
+              }
+              return payload.body || {};
+            }
+
+            const requestInit = {
+              method: method,
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+            };
+
+            if (options && options.body) {
+              requestInit.body = JSON.stringify(options.body);
+            }
+
             const response = await fetch(`${apiBase}${path}`, requestInit);
             const text = await response.text();
             const payload = safeJsonParse(text);
-
             if (!response.ok) {
               const err = new Error(
                 `API-fel ${response.status}: ${
@@ -315,7 +361,7 @@
               err.code = "HTTP_ERROR";
               err.status = response.status;
               err.path = path;
-              err.method = requestInit.method;
+              err.method = method;
               err.body = options && options.body ? options.body : null;
               throw err;
             }
@@ -325,8 +371,9 @@
               const corsErr = new Error("Direktanrop blockerat (trolig CORS).");
               corsErr.code = "CORS_BLOCKED";
               corsErr.path = path;
-              corsErr.method = requestInit.method;
+              corsErr.method = method;
               corsErr.body = options && options.body ? options.body : null;
+              corsErr.proxyMode = proxyMode;
               throw corsErr;
             }
             throw error;
@@ -461,17 +508,34 @@
           const { apiBase } = getConfig();
           const path = error.path || (companyId ? `/companies/${companyId}/invoices` : "/companies");
           const method = error.method || "GET";
-          const curlBody = body || error.body;
-          const bodyString = curlBody ? `-d '${JSON.stringify(curlBody)}'` : "";
-          const curl = [
-            `curl -X ${method} \\`,
-            `  "${apiBase}${path}" \\`,
-            `  -H "Authorization: Bearer <DIN_TOKEN>" \\`,
-            `  -H "Content-Type: application/json" \\`,
-            bodyString,
-          ]
-            .filter(Boolean)
-            .join("\n");
+          let curl = "";
+
+          if (isAppsScriptProxy(apiBase)) {
+            const proxyBody = error.body || {
+              token: "<DIN_TOKEN>",
+              method: method,
+              path: path,
+              body: body || null,
+            };
+            curl = [
+              "curl -X POST \\",
+              `  "${apiBase}" \\`,
+              '  -H "Content-Type: text/plain;charset=utf-8" \\',
+              `  -d '${JSON.stringify(proxyBody)}'`,
+            ].join("\n");
+          } else {
+            const curlBody = body || error.body;
+            const bodyString = curlBody ? `-d '${JSON.stringify(curlBody)}'` : "";
+            curl = [
+              `curl -X ${method} \\`,
+              `  "${apiBase}${path}" \\`,
+              `  -H "Authorization: Bearer <DIN_TOKEN>" \\`,
+              `  -H "Content-Type: application/json" \\`,
+              bodyString,
+            ]
+              .filter(Boolean)
+              .join("\n");
+          }
 
           el.corsMessage.textContent =
             "Detta ser ut som en CORS-blockering. For demo: verifiera anropet med curl eller en lokal proxy.";
@@ -545,6 +609,10 @@
           } catch (_err) {
             return null;
           }
+        }
+
+        function isAppsScriptProxy(apiBase) {
+          return /script\.google\.com\/macros\/s\/.+\/exec$/i.test(apiBase || "");
         }
 
         function extractIdsFromBokioUrl(url) {
