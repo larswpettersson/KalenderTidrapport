@@ -88,6 +88,10 @@ Exempel:
 
 I [webbdemon](https://www.larswpettersson.se/projects/fakturera-tid-med-bokio) kan du klistra in en Bokio-kundlänk för att fylla i ID-fälten automatiskt.
 
+Publicerad demo (GitHub Pages):
+
+[Bokiofaktura med Tidrapport GCAL/Outlook](https://larswpettersson.github.io/KalenderTidrapport/Javascript/bokiofaktura-tidrapport-gcal-outlook/)
+
 Exempel på länkformat:
 
 ```text

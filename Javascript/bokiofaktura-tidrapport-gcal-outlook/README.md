@@ -1,6 +1,10 @@
 # Bokiofaktura med Tidrapport GCAL/Outlook
 
-Minimal frontend-only MVP for demo av [Fakturera tid med Bokio](https://www.larswpettersson.se/projects/fakturera-tid-med-bokio)
+Minimal frontend-only MVP for demo av [Fakturera tid med Bokio](https://www.larswpettersson.se/projects/fakturera-tid-med-bokio).
+
+Live demo (GitHub Pages):
+
+[https://larswpettersson.github.io/KalenderTidrapport/Javascript/bokiofaktura-tidrapport-gcal-outlook/](https://larswpettersson.github.io/KalenderTidrapport/Javascript/bokiofaktura-tidrapport-gcal-outlook/)
 ## Included
 
 - `index.html` - simple UI for token, company/customer lookup, and invoice create.
