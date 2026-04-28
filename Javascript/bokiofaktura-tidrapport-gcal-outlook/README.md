@@ -34,9 +34,16 @@ If browser blocks Bokio API calls:
 - You get a ready `curl` example for the same request.
 - You can validate endpoint/token outside browser and demo the flow.
 
-## Security notes for demo mode
+## Security notes for public demo mode
 
-- Token is only kept in memory.
-- Token is not stored in localStorage.
-- For production use, move API calls to backend.
+- Recommended: each user uses their own Apps Script `/exec` URL with `BOKIO_API_TOKEN` in Script Properties.
+- Default secure mode in UI does **not** send token in request query.
+- Optional compatibility mode can send token in query, but this is less secure.
+- Token is kept in memory only and is not stored in localStorage.
+
+## Dry-run in UI
+
+- If `COMPANY_ID` or `CUSTOMER_ID` is empty, the UI runs pipeline in dry-run mode.
+- Dry-run returns and displays `buildExportText(weekData)` output.
+- No Bokio invoice is created in dry-run.
 

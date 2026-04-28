@@ -111,6 +111,23 @@
           grid-template-columns: 1fr;
         }
       }
+      .checkbox-inline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .checkbox-inline input {
+        width: auto;
+        margin-top: 0;
+      }
+      .steps {
+        margin: 8px 0 0;
+        padding-left: 20px;
+        color: #374151;
+      }
+      .steps li {
+        margin: 4px 0;
+      }
     </style>
   </head>
   <body>
@@ -119,12 +136,22 @@
 
       <h1>Bokiofaktura med Tidrapport GCAL/Outlook</h1>
       <p class="intro">
-        Minimal frontend-MVP i en fil. Klistra in token, extrahera ID från Bokio-länk
-        eller ange ID manuellt och skapa fakturautkast.
+        Minimal frontend-MVP i en fil. För säker publik demo: använd egen Apps Script
+        deployment med token i Script Properties, och skapa fakturautkast utan att skicka
+        token i URL.
       </p>
 
       <section class="card">
         <h2>1) API och auth</h2>
+        <p class="help">
+          Setup-guide (saker publik demo): varje testare använder egen Apps Script deployment.
+        </p>
+        <ol class="steps">
+          <li>Deploya egen <code>Code.gs</code> som Web App och kopiera <code>/exec</code>-URL.</li>
+          <li>Sätt Script Property <code>BOKIO_API_TOKEN</code> i Apps Script.</li>
+          <li>Låt <code>ALLOW_TOKEN_FROM_REQUEST</code> vara tom/false.</li>
+          <li>Klistra in din egen <code>/exec</code> i Bokio API base nedan.</li>
+        </ol>
         <label>
           Bokio API base
           <input id="apiBase" type="text" value="https://script.google.com/macros/s/AKfycbwwmUvAS9yeo0ffIWpqv7ZmNMYLmyzvQcfnOEQ_X1TaSj1Ofy7jAm2mALjGnLuVZTVU/exec" />
@@ -134,12 +161,17 @@
           <input
             id="apiToken"
             type="password"
-            placeholder="Klistra in eller autofill fran Bitwarden/1Password"
+            placeholder="Valfritt (rekommenderat tomt i publik demo)"
             autocomplete="off"
           />
         </label>
+        <label class="checkbox-inline">
+          <input id="allowInsecureTokenForward" type="checkbox" />
+          Skicka token i request (mindre säkert, hamnar i query string)
+        </label>
         <p class="help">
-          Token sparas inte i localStorage. Endast in-memory under sessionen.
+          Rekommenderat: spara BOKIO_API_TOKEN i Script Properties pa din egen Apps Script
+          deployment. Da skickas ingen token fran browsern.
         </p>
       </section>
 
@@ -210,6 +242,7 @@
         const el = {
           apiBase: document.getElementById("apiBase"),
           apiToken: document.getElementById("apiToken"),
+          allowInsecureTokenForward: document.getElementById("allowInsecureTokenForward"),
           bokioUrl: document.getElementById("bokioUrl"),
           companyIdInput: document.getElementById("companyIdInput"),
           customerIdInput: document.getElementById("customerIdInput"),
@@ -236,6 +269,7 @@
           return {
             apiBase: el.apiBase.value.trim().replace(/\/$/, ""),
             token: el.apiToken.value.trim(),
+            allowInsecureTokenForward: Boolean(el.allowInsecureTokenForward.checked),
           };
         }
 
@@ -248,21 +282,16 @@
         }
 
         async function callGas(payload) {
-          const { apiBase, token } = getConfig();
-          if (!token) throw new Error("Saknar BOKIO_API_TOKEN.");
+          const { apiBase, token, allowInsecureTokenForward } = getConfig();
           if (!isAppsScriptProxy(apiBase)) {
             throw new Error("Bokio API base måste vara en script.google.com/.../exec-länk.");
           }
 
           try {
-            const requestPayload = Object.assign({}, payload, { token: token });
-            const response = await fetch(apiBase, {
-              method: "POST",
-              headers: {
-                "Content-Type": "text/plain;charset=utf-8",
-              },
-              body: JSON.stringify(requestPayload),
-            });
+            const requestPayload = Object.assign({}, payload);
+            if (token && allowInsecureTokenForward) requestPayload.token = token;
+            const url = `${apiBase}?${new URLSearchParams(cleanObject(requestPayload)).toString()}`;
+            const response = await fetch(url, { method: "GET" });
 
             const text = await response.text();
             const parsed = safeJsonParse(text);
@@ -291,7 +320,7 @@
             if (error instanceof TypeError) {
               const corsErr = new Error("Direktanrop blockerat (trolig CORS).");
               corsErr.code = "CORS_BLOCKED";
-              corsErr.method = "POST";
+              corsErr.method = "GET";
               corsErr.body = payload || null;
               throw corsErr;
             }
@@ -303,10 +332,6 @@
           clearCorsFallback();
           const companyId = getCompanyId();
           const customerId = getCustomerId();
-          if (!companyId || !customerId) {
-            setStatus("Ange COMPANY_ID och CUSTOMER_ID innan körning.", "error");
-            return;
-          }
 
           const yearMonth = (el.yearMonth.value || "").trim();
           if (!/^\d{4}-\d{2}$/.test(yearMonth)) {
@@ -328,25 +353,34 @@
             prefix: prefix,
             calendarUrl: calendarUrl || undefined,
             timpris: timpris,
-            companyId: companyId,
-            customerId: customerId,
+            companyId: companyId || undefined,
+            customerId: customerId || undefined,
+            dryRun: !companyId || !customerId,
           };
 
-          setStatus("Kör pipeline (kalender -> fakturautkast)...");
+          setStatus(
+            payload.dryRun
+              ? "Kör pipeline i dry-run (ingen Bokio-faktura skapas)..."
+              : "Kör pipeline (kalender -> fakturautkast)..."
+          );
           try {
             const result = await callGas(payload);
-            setStatus(
-              [
-                "Fakturautkast skapat.",
-                `Period: ${yearMonth}`,
-                `Prefix: ${prefix || "-"}`,
-                `Company ID: ${companyId}`,
-                `Customer ID: ${customerId}`,
-                "",
-                `JSON-svar: ${JSON.stringify(result, null, 2)}`,
-              ].join("\n"),
-              "success"
-            );
+            const lines = [
+              result.dryRun
+                ? "Dry-run klar. Ingen Bokio-faktura skapades."
+                : "Fakturautkast skapat.",
+              `Period: ${yearMonth}`,
+              `Prefix: ${prefix || "-"}`,
+              `Company ID: ${companyId || "-"}`,
+              `Customer ID: ${customerId || "-"}`,
+              "",
+              "Exporttext (buildExportText):",
+              result.exportText || "(ingen exporttext)",
+            ];
+            if (!result.dryRun) {
+              lines.push("", `JSON-svar: ${JSON.stringify(result, null, 2)}`);
+            }
+            setStatus(lines.join("\n"), "success");
           } catch (error) {
             handleError(error, payload, companyId, "pipeline");
           }
@@ -391,18 +425,17 @@
           const { apiBase } = getConfig();
           const proxyBody = error.body || body || {
             action: "runPipeline",
-            token: "<DIN_TOKEN>",
             yearMonth: "2026-04",
             prefix: "ACME",
             companyId: "<COMPANY_ID>",
             customerId: "<CUSTOMER_ID>",
           };
-          const curl = [
-            "curl -X POST \\",
-            `  "${apiBase}" \\`,
-            '  -H "Content-Type: text/plain;charset=utf-8" \\',
-            `  -d '${JSON.stringify(proxyBody)}'`,
-          ].join("\n");
+          const curlArgs = Object.entries(cleanObject(proxyBody)).map(
+            ([key, value]) => `  --data-urlencode "${key}=${String(value)}" \\`
+          );
+          const curl = ["curl -G \\", `  "${apiBase}" \\`, ...curlArgs]
+            .join("\n")
+            .replace(/\\\n$/, "");
 
           el.corsMessage.textContent =
             "Detta ser ut som en CORS-blockering. For demo: verifiera anropet med curl eller en lokal proxy.";
@@ -438,6 +471,16 @@
           } catch (_err) {
             return null;
           }
+        }
+
+        function cleanObject(obj) {
+          const out = {};
+          Object.keys(obj || {}).forEach((k) => {
+            const v = obj[k];
+            if (v === undefined || v === null || v === "") return;
+            out[k] = v;
+          });
+          return out;
         }
 
         function isAppsScriptProxy(apiBase) {

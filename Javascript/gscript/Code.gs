@@ -2,7 +2,7 @@
  * Google Apps Script Web App backend for:
  * ./fakturera_kund.sh <yyyy-mm> [prefix]
  *
- * Request body (text/plain JSON):
+ * Request body (text/plain JSON) for POST, or query params for GET:
  * {
  *   "action": "runPipeline",
  *   "token": "BOKIO_API_TOKEN",
@@ -18,33 +18,79 @@ function doPost(e) {
   try {
     var raw = (e && e.postData && e.postData.contents) || "";
     var req = JSON.parse(raw || "{}");
-    var action = (req.action || "").trim();
-
-    if (action !== "runPipeline") {
-      return jsonResponse(400, { error: "Unsupported action. Use action=runPipeline." });
-    }
-
-    var result = runPipeline(req);
-    return jsonResponse(200, result);
+    return handleRequest(req);
   } catch (err) {
     return jsonResponse(500, { error: String(err) });
   }
 }
 
+function doGet(e) {
+  try {
+    var req = parseGetRequest(e);
+    return handleRequest(req);
+  } catch (err) {
+    return jsonResponse(500, { error: String(err) });
+  }
+}
+
+function parseGetRequest(e) {
+  var params = (e && e.parameter) || {};
+  var req = {
+    action: params.action,
+    token: params.token,
+    yearMonth: params.yearMonth,
+    prefix: params.prefix,
+    companyId: params.companyId,
+    customerId: params.customerId,
+    calendarUrl: params.calendarUrl,
+    timpris: params.timpris,
+  };
+
+  // Optional compact mode: payload=<JSON-string>
+  if (params.payload) {
+    var payloadReq = JSON.parse(String(params.payload));
+    Object.keys(payloadReq).forEach(function (k) {
+      req[k] = payloadReq[k];
+    });
+  }
+
+  return req;
+}
+
+function handleRequest(req) {
+  var action = String((req && req.action) || "").trim();
+  if (action !== "runPipeline") {
+    return jsonResponse(400, { error: "Unsupported action. Use action=runPipeline." });
+  }
+
+  var result = runPipeline(req || {});
+  return jsonResponse(200, result);
+}
+
 function runPipeline(req) {
-  var token = String(req.token || "").trim();
+  var scriptProps = PropertiesService.getScriptProperties().getProperties();
+  var allowTokenFromRequest = String(scriptProps.ALLOW_TOKEN_FROM_REQUEST || "")
+    .toLowerCase()
+    .trim() === "true";
+  var tokenFromRequest = String(req.token || "").trim();
+  var tokenFromScriptProps = String(scriptProps.BOKIO_API_TOKEN || "").trim();
+  var token = tokenFromScriptProps || (allowTokenFromRequest ? tokenFromRequest : "");
   var yearMonth = String(req.yearMonth || "").trim();
   var prefix = String(req.prefix || "").trim();
   var companyId = String(req.companyId || "").trim();
   var customerId = String(req.customerId || "").trim();
-
-  var scriptProps = PropertiesService.getScriptProperties().getProperties();
   var calendarUrl = String(req.calendarUrl || scriptProps.KALENDER_URL || "").trim();
   var timpris = Number(req.timpris || scriptProps.TIMPRIS || 1200);
+  var dryRunRequested = String(req.dryRun || "").toLowerCase().trim() === "true";
+  var dryRunAuto = !companyId || !customerId;
+  var dryRun = dryRunRequested || dryRunAuto;
 
+  if (tokenFromRequest && !allowTokenFromRequest && !tokenFromScriptProps) {
+    throw new Error(
+      "Token in request is disabled. Store BOKIO_API_TOKEN in Script Properties, or set ALLOW_TOKEN_FROM_REQUEST=true."
+    );
+  }
   if (!token) throw new Error("Missing token.");
-  if (!companyId) throw new Error("Missing companyId.");
-  if (!customerId) throw new Error("Missing customerId.");
   if (!calendarUrl) throw new Error("Missing calendarUrl (or Script Property KALENDER_URL).");
   if (!/^\d{4}-\d{2}$/.test(yearMonth)) throw new Error("yearMonth must be yyyy-mm.");
   if (!timpris || timpris <= 0) throw new Error("timpris must be > 0.");
@@ -66,14 +112,32 @@ function runPipeline(req) {
 
   var aggregates = aggregateEntries(entries);
   var lineItems = buildLineItems(aggregates.dayProjectSum, timpris);
+  var exportText = buildExportText(aggregates.weekData);
   if (lineItems.length === 0) {
     return {
       message: "Inga fakturerbara rader hittades.",
       lineItemsCount: 0,
       entriesCount: entries.length,
-      exportText: buildExportText(aggregates.weekData),
+      dryRun: true,
+      exportText: exportText,
     };
   }
+
+  if (dryRun) {
+    return {
+      message:
+        "Dry-run: fakturautkast skapades inte. Visar endast tidrapport/export från buildExportText().",
+      yearMonth: yearMonth,
+      prefix: prefix || "",
+      entriesCount: entries.length,
+      lineItemsCount: lineItems.length,
+      dryRun: true,
+      exportText: exportText,
+    };
+  }
+
+  if (!companyId) throw new Error("Missing companyId.");
+  if (!customerId) throw new Error("Missing customerId.");
 
   var now = new Date();
   var invoiceDate = toDateString(now);
@@ -113,8 +177,9 @@ function runPipeline(req) {
     customerId: customerId,
     entriesCount: entries.length,
     lineItemsCount: lineItems.length,
+    dryRun: false,
     invoice: parsed || raw,
-    exportText: buildExportText(aggregates.weekData),
+    exportText: exportText,
   };
 }
 
