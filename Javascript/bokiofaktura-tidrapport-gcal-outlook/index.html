@@ -144,13 +144,16 @@
       <section class="card">
         <h2>1) API och auth</h2>
         <p class="help">
-          Setup-guide (saker publik demo): varje testare använder egen Apps Script deployment.
+          Setup-guide (säker publik demo): varje testare använder egen Apps Script deployment.
         </p>
         <ol class="steps">
           <li>Deploya egen <code>Code.gs</code> som Web App och kopiera <code>/exec</code>-URL.</li>
           <li>Sätt Script Property <code>BOKIO_API_TOKEN</code> i Apps Script.</li>
           <li>Låt <code>ALLOW_TOKEN_FROM_REQUEST</code> vara tom/false.</li>
-          <li>Klistra in din egen <code>/exec</code> i Bokio API base nedan.</li>
+          <li>
+            Klistra in din egen <code>/exec</code> i fältet <code>Bokio API base</code> nedan och
+            ersätt den förifyllda standard-URL:en.
+          </li>
         </ol>
         <label>
           Bokio API base
