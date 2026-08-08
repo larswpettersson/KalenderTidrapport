@@ -114,28 +114,10 @@
       <div id="flashStatus" class="toast hidden" aria-live="assertive"></div>
 
       <h1>Tidrapport-export</h1>
-      <p class="intro">
-        Fristående, skrivskyddad vy av <code>ics2tidrapport.py</code>-flödet. Kalenderlänken
-        hämtas från en hemlighet (Script Property <code>KALENDER_TIDRAPPORT_URL</code>) på en
-        egen, Bokio-fri Apps Script-backend — den skickas aldrig från sidan. Denna backend
-        innehåller ingen Bokio-kod alls, så den kan inte skapa fakturor eller anropa Bokio.
-      </p>
+      <input id="apiBase" type="hidden" />
 
       <section class="card">
-        <h2>API</h2>
-        <label>
-          Apps Script API base
-          <input id="apiBase" type="text" placeholder="https://script.google.com/macros/s/DIN_DEPLOYMENT/exec" />
-        </label>
-        <p class="help">
-          Deploya <a href="../gscript-tidrapport/Code.gs">Javascript/gscript-tidrapport/Code.gs</a>
-          som egen Web App och sätt Script Property <code>KALENDER_TIDRAPPORT_URL</code>. Klistra
-          sedan in din <code>/exec</code>-URL här.
-        </p>
-      </section>
-
-      <section class="card">
-        <h2>Hämta tidrapport</h2>
+        <h2>Hämta tidrapport för Lars</h2>
         <div class="row">
           <label>
             Project (prefix)
@@ -146,7 +128,7 @@
             <input id="yearMonth" type="text" placeholder="2026-04" />
           </label>
         </div>
-        <button id="btnFetch" type="button">Hämta tidrapport</button>
+        <button id="btnFetch" type="button">Hämta tidrapport för Lars</button>
       </section>
 
       <section id="status" class="card status" aria-live="polite">Klar.</section>
@@ -174,6 +156,14 @@
 
         el.yearMonth.value = "2026-04";
 
+        (function initApiBase() {
+          const fromQuery = new URLSearchParams(location.search).get("api");
+          if (fromQuery) {
+            localStorage.setItem("tidrapportApiBase", fromQuery);
+          }
+          el.apiBase.value = fromQuery || localStorage.getItem("tidrapportApiBase") || "";
+        })();
+
         el.btnFetch.addEventListener("click", () => fetchTidrapport());
 
         function getApiBase() {
@@ -183,7 +173,9 @@
         async function callGas(payload) {
           const apiBase = getApiBase();
           if (!isAppsScriptProxy(apiBase)) {
-            throw new Error("API base måste vara en script.google.com/.../exec-länk.");
+            throw new Error(
+              "Ingen giltig API-bas satt. Öppna sidan en gång med ?api=https://script.google.com/macros/s/.../exec"
+            );
           }
 
           try {
