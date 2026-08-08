@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(env)",
+      "Bash(find / -maxdepth 3 -iname \".devcontainer\")"
+    ]
+  }
+}

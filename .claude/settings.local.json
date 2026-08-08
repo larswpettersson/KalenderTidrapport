@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -i 's/KALENDER_URL/KALENDER_TIDRAPPORT_URL/g' README.md .env-example ics2tidrapport.py Javascript/gscript/README.md Javascript/gscript/Code.gs Javascript/bokiofaktura-tidrapport-gcal-outlook/index.html *)"
+    ],
+    "additionalDirectories": [
+      "/workspaces/KalenderTidrapport"
+    ]
+  }
+}
