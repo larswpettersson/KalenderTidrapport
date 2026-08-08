@@ -2,7 +2,16 @@
   "permissions": {
     "allow": [
       "Bash(env)",
-      "Bash(find / -maxdepth 3 -iname \".devcontainer\")"
+      "Bash(find / -maxdepth 3 -iname \".devcontainer\")",
+      "WebFetch(domain:sites.google.com)",
+      "Bash(gh api *)",
+      "Bash(curl -s -D - -o /dev/null https://larswpettersson.github.io/KalenderTidrapport/)",
+      "Bash(git -C /workspaces/KalenderTidrapport log --oneline -5 -- Javascript/tidrapport-export/index.html)",
+      "Bash(git -C /workspaces/KalenderTidrapport show 789c14d --stat)",
+      "Bash(python3 -c \"import html.parser; p = html.parser.HTMLParser\\(\\); p.feed\\(open\\('Javascript/tidrapport-export/index.html'\\).read\\(\\)\\); print\\('parsed OK'\\)\")",
+      "Bash(nohup python3 -m http.server 8080 --bind 0.0.0.0)",
+      "Bash(disown)",
+      "Bash(curl -sI http://localhost:8080/)"
     ]
   }
 }
