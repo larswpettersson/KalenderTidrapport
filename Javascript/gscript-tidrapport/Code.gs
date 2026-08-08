@@ -72,6 +72,7 @@ function getTidrapport(req) {
 
   var weekData = aggregateEntries(entries);
   var exportText = buildExportText(weekData);
+  var rows = buildExportRows(weekData);
 
   return {
     message: "Tidrapport hämtad.",
@@ -79,6 +80,7 @@ function getTidrapport(req) {
     prefix: prefix || "",
     entriesCount: entries.length,
     exportText: exportText,
+    rows: rows,
   };
 }
 
@@ -157,11 +159,7 @@ function aggregateEntries(entries) {
 }
 
 function buildExportText(weekData) {
-  var keys = Object.keys(weekData).sort(function (a, b) {
-    var aw = weekData[a].year * 100 + weekData[a].week;
-    var bw = weekData[b].year * 100 + weekData[b].week;
-    return aw - bw;
-  });
+  var keys = sortedWeekKeys(weekData);
   if (keys.length === 0) return "";
 
   var COL = 30;
@@ -172,29 +170,12 @@ function buildExportText(weekData) {
   keys.forEach(function (wk) {
     var w = weekData[wk];
     out.push("--- VECKA " + w.week + " (" + w.year + ") ---");
-    var dates = getWeekDates(w.year, w.week);
-    var dateHeaders = dates
-      .map(function (d) {
-        return d.getDate() + "/" + (d.getMonth() + 1);
-      })
-      .join("\t");
-    out.push(padRight("Aktivitet".substring(0, COL), COL) + "\t" + dateHeaders + "\tTotalt");
 
     Object.keys(w.projects)
       .sort()
       .forEach(function (subject) {
-        var days = w.projects[subject];
-        var total = round2(
-          days.reduce(function (acc, x) {
-            return acc + x;
-          }, 0)
-        );
-        var dayText = days
-          .map(function (x) {
-            return x > 0 ? String(round2(x)) : "0";
-          })
-          .join("\t");
-        out.push(padRight(subject.substring(0, COL), COL) + "\t" + dayText + "\t" + total);
+        var weekdayHours = weekdayHoursForProject(w.projects[subject]);
+        out.push(padRight(subject.substring(0, COL), COL) + "\t" + weekdayHours.join("\t"));
       });
     out.push("");
   });
@@ -202,18 +183,37 @@ function buildExportText(weekData) {
   return out.join("\n");
 }
 
-function getWeekDates(year, week) {
-  var jan4 = new Date(Date.UTC(year, 0, 4));
-  var jan4Day = jan4.getUTCDay() || 7; // Mon=1..Sun=7
-  var monday = new Date(jan4);
-  monday.setUTCDate(jan4.getUTCDate() - (jan4Day - 1) + (week - 1) * 7);
-  var out = [];
-  for (var i = 0; i < 7; i++) {
-    var d = new Date(monday);
-    d.setUTCDate(monday.getUTCDate() + i);
-    out.push(new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  }
-  return out;
+function buildExportRows(weekData) {
+  var rows = [];
+  sortedWeekKeys(weekData).forEach(function (wk) {
+    var w = weekData[wk];
+    Object.keys(w.projects)
+      .sort()
+      .forEach(function (subject) {
+        rows.push({
+          subject: subject,
+          year: w.year,
+          week: w.week,
+          values: weekdayHoursForProject(w.projects[subject]),
+        });
+      });
+  });
+  return rows;
+}
+
+function weekdayHoursForProject(days) {
+  // Only Mon-Fri; weekends are dropped from the tidrapport row.
+  return days.slice(0, 5).map(function (x) {
+    return x > 0 ? String(round2(x)) : "0";
+  });
+}
+
+function sortedWeekKeys(weekData) {
+  return Object.keys(weekData).sort(function (a, b) {
+    var aw = weekData[a].year * 100 + weekData[a].week;
+    var bw = weekData[b].year * 100 + weekData[b].week;
+    return aw - bw;
+  });
 }
 
 function getIsoWeekParts(dateObj) {

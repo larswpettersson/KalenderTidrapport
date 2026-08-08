@@ -107,6 +107,52 @@
         padding: 12px;
         border-radius: 8px;
       }
+      .table-scroll {
+        overflow-x: auto;
+      }
+      .tta-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      .tta-table th,
+      .tta-table td {
+        border: 1px solid #dbe1ea;
+        padding: 8px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .tta-table thead th {
+        background: #eef2ff;
+        color: #1e3a8a;
+      }
+      .tta-table tbody tr:nth-child(even) {
+        background: #f9fafb;
+      }
+      .tta-table .tta-activity strong {
+        display: block;
+      }
+      .tta-table .tta-week {
+        display: block;
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 2px;
+      }
+      .tta-table .tta-hours-row {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .tta-table .tta-hours-row input {
+        margin-top: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .tta-table .tta-hours-row button {
+        width: auto;
+        margin-top: 0;
+        white-space: nowrap;
+        padding: 8px 12px;
+      }
       @media (max-width: 560px) {
         .row {
           grid-template-columns: 1fr;
@@ -134,27 +180,29 @@
           </label>
         </div>
         <button id="btnFetch" type="button">Hämta tidrapport för Lars</button>
-
-        <label>
-          Klistra in tidsrad (tabbseparerade timmar, t.ex. kopierat från en dagkolumn i exporten)
-          <textarea id="pasteRow" rows="2" placeholder="8	8	8	8	8	0	0"></textarea>
-        </label>
-        <p class="help">
-          Klistra in en rad med tabbseparerade timvärden. Scriptleten nedan genereras automatiskt.
-        </p>
-
-        <label>
-          Scriptlet för Agresso
-          <textarea id="scriptletOut" rows="8" readonly placeholder="Klistra in en tidsrad ovan för att generera scriptleten."></textarea>
-        </label>
-        <p class="help">
-          Klicka i första cellen på raden i Agresso, öppna webbläsarens konsol (F12), klistra in
-          scriptleten och tryck Enter. Den fyller i värdena ett i taget och flyttar till nästa fält
-          automatiskt.
-        </p>
       </section>
 
       <section id="status" class="card status" aria-live="polite">Klar.</section>
+
+      <section id="resultSection" class="card hidden">
+        <h2>Tidrapport</h2>
+        <div class="table-scroll">
+          <table class="tta-table" id="resultTable">
+            <thead>
+              <tr>
+                <th>Aktivitet</th>
+                <th>Vecka</th>
+              </tr>
+            </thead>
+            <tbody id="resultTbody"></tbody>
+          </table>
+        </div>
+        <p class="help">
+          Klicka i tidfältet för att markera hela raden, eller tryck "Kopiera scriptlet" och klistra
+          in i första cellen på raden i Agresso (öppna konsolen med F12 först). Scriptleten fyller i
+          värdena ett i taget och flyttar till nästa fält automatiskt.
+        </p>
+      </section>
 
       <section id="corsFallback" class="card hidden">
         <h2>CORS fallback</h2>
@@ -175,27 +223,68 @@
           corsMessage: document.getElementById("corsMessage"),
           curlExample: document.getElementById("curlExample"),
           btnFetch: document.getElementById("btnFetch"),
-          pasteRow: document.getElementById("pasteRow"),
-          scriptletOut: document.getElementById("scriptletOut"),
+          resultSection: document.getElementById("resultSection"),
+          resultTbody: document.getElementById("resultTbody"),
         };
 
         el.yearMonth.value = "2026-04";
 
-        el.pasteRow.addEventListener("input", () => updateScriptlet());
-        el.scriptletOut.addEventListener("click", () => el.scriptletOut.select());
+        function renderRows(rows) {
+          el.resultTbody.innerHTML = "";
+          if (!rows || !rows.length) {
+            el.resultSection.classList.add("hidden");
+            return;
+          }
 
-        function updateScriptlet() {
-          const values = parseHourRow(el.pasteRow.value);
-          el.scriptletOut.value = values.length ? buildAgressoScriptlet(values) : "";
+          rows.forEach((row) => {
+            const tr = document.createElement("tr");
+
+            const activityTd = document.createElement("td");
+            activityTd.className = "tta-activity";
+            const strong = document.createElement("strong");
+            strong.textContent = row.subject;
+            const weekSpan = document.createElement("span");
+            weekSpan.className = "tta-week";
+            weekSpan.textContent = `v. ${row.week} (${row.year})`;
+            activityTd.append(strong, weekSpan);
+
+            const hoursTd = document.createElement("td");
+            const hoursRow = document.createElement("div");
+            hoursRow.className = "tta-hours-row";
+
+            const hoursInput = document.createElement("input");
+            hoursInput.type = "text";
+            hoursInput.readOnly = true;
+            hoursInput.value = row.values.join("\t");
+            hoursInput.addEventListener("click", () => hoursInput.select());
+
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.textContent = "Kopiera scriptlet";
+            copyBtn.addEventListener("click", () => copyScriptletForRow(row, copyBtn));
+
+            hoursRow.append(hoursInput, copyBtn);
+            hoursTd.appendChild(hoursRow);
+
+            tr.append(activityTd, hoursTd);
+            el.resultTbody.appendChild(tr);
+          });
+
+          el.resultSection.classList.remove("hidden");
         }
 
-        function parseHourRow(text) {
-          return String(text || "")
-            .replace(/\r/g, "")
-            .split("\n")[0]
-            .split("\t")
-            .map((v) => v.trim())
-            .filter((v) => v.length > 0);
+        async function copyScriptletForRow(row, button) {
+          const scriptlet = buildAgressoScriptlet(row.values);
+          const originalLabel = button.textContent;
+          try {
+            await navigator.clipboard.writeText(scriptlet);
+            button.textContent = "Kopierat!";
+          } catch (_err) {
+            button.textContent = "Kunde inte kopiera";
+          }
+          setTimeout(() => {
+            button.textContent = originalLabel;
+          }, 1500);
         }
 
         function buildAgressoScriptlet(values) {
@@ -375,15 +464,18 @@
           setStatus("Hämtar tidrapport...");
           try {
             const result = await callGas(payload);
-            const lines = [
+            renderRows(result.rows);
+            const summary = [
               `Project: ${prefix || "-"}`,
               `Time: ${yearMonth}`,
               `Antal kalenderposter: ${result.entriesCount ?? 0}`,
-              "",
-              result.exportText || result.message || "(ingen data för denna period/prefix)",
             ];
-            setStatus(lines.join("\n"), "success");
+            if (!result.rows || !result.rows.length) {
+              summary.push("", result.message || "(ingen data för denna period/prefix)");
+            }
+            setStatus(summary.join("\n"), "success");
           } catch (error) {
+            renderRows([]);
             handleError(error, payload);
           }
         }
