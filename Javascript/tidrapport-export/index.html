@@ -40,13 +40,18 @@
         font-size: 14px;
       }
       input,
-      button {
+      button,
+      textarea {
         width: 100%;
         margin-top: 6px;
         font-size: 14px;
         padding: 10px;
         border-radius: 8px;
         border: 1px solid #cbd5e1;
+      }
+      textarea {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        resize: vertical;
       }
       button {
         background: #1d4ed8;
@@ -129,6 +134,24 @@
           </label>
         </div>
         <button id="btnFetch" type="button">Hämta tidrapport för Lars</button>
+
+        <label>
+          Klistra in tidsrad (tabbseparerade timmar, t.ex. kopierat från en dagkolumn i exporten)
+          <textarea id="pasteRow" rows="2" placeholder="8	8	8	8	8	0	0"></textarea>
+        </label>
+        <p class="help">
+          Klistra in en rad med tabbseparerade timvärden. Scriptleten nedan genereras automatiskt.
+        </p>
+
+        <label>
+          Scriptlet för Agresso
+          <textarea id="scriptletOut" rows="8" readonly placeholder="Klistra in en tidsrad ovan för att generera scriptleten."></textarea>
+        </label>
+        <p class="help">
+          Klicka i första cellen på raden i Agresso, öppna webbläsarens konsol (F12), klistra in
+          scriptleten och tryck Enter. Den fyller i värdena ett i taget och flyttar till nästa fält
+          automatiskt.
+        </p>
       </section>
 
       <section id="status" class="card status" aria-live="polite">Klar.</section>
@@ -152,9 +175,85 @@
           corsMessage: document.getElementById("corsMessage"),
           curlExample: document.getElementById("curlExample"),
           btnFetch: document.getElementById("btnFetch"),
+          pasteRow: document.getElementById("pasteRow"),
+          scriptletOut: document.getElementById("scriptletOut"),
         };
 
         el.yearMonth.value = "2026-04";
+
+        el.pasteRow.addEventListener("input", () => updateScriptlet());
+        el.scriptletOut.addEventListener("click", () => el.scriptletOut.select());
+
+        function updateScriptlet() {
+          const values = parseHourRow(el.pasteRow.value);
+          el.scriptletOut.value = values.length ? buildAgressoScriptlet(values) : "";
+        }
+
+        function parseHourRow(text) {
+          return String(text || "")
+            .replace(/\r/g, "")
+            .split("\n")[0]
+            .split("\t")
+            .map((v) => v.trim())
+            .filter((v) => v.length > 0);
+        }
+
+        function buildAgressoScriptlet(values) {
+          const valuesJson = JSON.stringify(values);
+          return [
+            "(function () {",
+            "  var values = " + valuesJson + ";",
+            "  var i = 0;",
+            "  function isVisible(el) {",
+            "    return !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);",
+            "  }",
+            "  function focusableElements() {",
+            '    var sel = \'input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])\';',
+            "    return Array.prototype.filter.call(document.querySelectorAll(sel), isVisible);",
+            "  }",
+            "  function nextFocusable(current) {",
+            "    var els = focusableElements();",
+            "    var idx = els.indexOf(current);",
+            "    if (idx === -1 || idx === els.length - 1) return null;",
+            "    return els[idx + 1];",
+            "  }",
+            "  function setValue(el, val) {",
+            "    var proto = Object.getPrototypeOf(el);",
+            "    var desc =",
+            "      Object.getOwnPropertyDescriptor(proto, 'value') ||",
+            "      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');",
+            "    if (desc && desc.set) {",
+            "      desc.set.call(el, val);",
+            "    } else {",
+            "      el.value = val;",
+            "    }",
+            "    el.dispatchEvent(new Event('input', { bubbles: true }));",
+            "    el.dispatchEvent(new Event('change', { bubbles: true }));",
+            "  }",
+            "  function step() {",
+            "    var el = document.activeElement;",
+            "    if (!el || i >= values.length) {",
+            "      console.log('Tidrapport-scriptlet: klar (' + i + ' fält ifyllda).');",
+            "      return;",
+            "    }",
+            "    setValue(el, values[i]);",
+            "    i++;",
+            "    if (i >= values.length) {",
+            "      console.log('Tidrapport-scriptlet: klar (' + i + ' fält ifyllda).');",
+            "      return;",
+            "    }",
+            "    var next = nextFocusable(el);",
+            "    if (!next) {",
+            "      console.log('Tidrapport-scriptlet: hittade inget nästa fält efter ' + i + ' värden.');",
+            "      return;",
+            "    }",
+            "    next.focus();",
+            "    setTimeout(step, 30);",
+            "  }",
+            "  step();",
+            "})();",
+          ].join("\n");
+        }
 
         (function initApiBase() {
           const fromQuery = new URLSearchParams(location.search).get("api");
