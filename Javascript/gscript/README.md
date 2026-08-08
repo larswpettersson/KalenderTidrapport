@@ -47,7 +47,7 @@ Exempel (`GET` query params):
 }
 ```
 
-`calendarUrl` is optional if you configure Script Property `KALENDER_URL`.
+`calendarUrl` is optional if you configure Script Property `KALENDER_TIDRAPPORT_URL`.
 
 ## Secure public demo (recommended)
 

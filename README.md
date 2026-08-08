@@ -14,7 +14,7 @@ Detta projekt tar tid från en ICS-kalender, filtrerar på period och valfritt k
 Kedjan körs i denna ordning:
 
 1. `fakturera_kund.sh` tar emot period (`yyyy-mm`) och valfritt kundprefix och kopplar ihop stegen med en pipe.
-2. `ics2tidrapport.py` hämtar ICS-data från `KALENDER_URL` i `.env`, filtrerar på månad och prefix, och skickar resultatet som JSON till stdout.
+2. `ics2tidrapport.py` hämtar ICS-data från `KALENDER_TIDRAPPORT_URL` i `.env`, filtrerar på månad och prefix, och skickar resultatet som JSON till stdout.
 3. `skapa_faktura_i_bokio.py` läser JSON från stdin, grupperar/summerar tid, skapar fakturautkast i Bokio och skriver även ut en textfil för vidare export.
 
 Det innebär att du normalt bara behöver köra ett enda kommando:
@@ -60,7 +60,7 @@ cp .env-example .env
 
 2. Fyll i värden i `.env`:
 
-- `KALENDER_URL` - publik eller delad ICS-länk till kalendern
+- `KALENDER_TIDRAPPORT_URL` - publik eller delad ICS-länk till kalendern
 - `BOKIO_API_TOKEN` - token för Bokio API
 - `COMPANY_ID` - ditt företags-id i Bokio
 - `CUSTOMER_ID` - kund-id i Bokio
@@ -145,7 +145,7 @@ python ics2tidrapport.py 2026-04 ACME | python skapa_faktura_i_bokio.py
 
 ## Vanliga fel
 
-- `Fel: Ingen KALENDER_URL hittades i .env`
+- `Fel: Ingen KALENDER_TIDRAPPORT_URL hittades i .env`
   - Kontrollera att `.env` finns och att variabeln är ifylld.
 - `Ingen data att fakturera.`
   - Ingen kalenderdata matchade period/prefix.

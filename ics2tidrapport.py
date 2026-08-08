@@ -10,7 +10,7 @@ load_dotenv()
 
 def main():
     # Hämta URL från .env som standard
-    source = os.getenv("KALENDER_URL")
+    source = os.getenv("KALENDER_TIDRAPPORT_URL")
     
     # Hantera argument: ics2tidrapport.py <yyyy-mm> [prefix]
     if len(sys.argv) < 2:
@@ -21,7 +21,7 @@ def main():
     prefix = sys.argv[2] if len(sys.argv) > 2 else ""
 
     if not source:
-        print("Fel: Ingen KALENDER_URL hittades i .env", file=sys.stderr)
+        print("Fel: Ingen KALENDER_TIDRAPPORT_URL hittades i .env", file=sys.stderr)
         sys.exit(1)
 
     bearbetad_data_lista = []

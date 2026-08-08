@@ -10,7 +10,7 @@
  *   "prefix": "ACME",
  *   "companyId": "...",
  *   "customerId": "...",
- *   "calendarUrl": "https://.../basic.ics", // optional, falls back to Script Property KALENDER_URL
+ *   "calendarUrl": "https://.../basic.ics", // optional, falls back to Script Property KALENDER_TIDRAPPORT_URL
  *   "timpris": 1200                           // optional, fallback TIMPRIS script property, then 1200
  * }
  */
@@ -85,7 +85,7 @@ function runPipeline(req) {
   var prefix = String(req.prefix || "").trim();
   var companyId = String(req.companyId || "").trim();
   var customerId = String(req.customerId || "").trim();
-  var calendarUrl = String(req.calendarUrl || scriptProps.KALENDER_URL || "").trim();
+  var calendarUrl = String(req.calendarUrl || scriptProps.KALENDER_TIDRAPPORT_URL || "").trim();
   var timpris = Number(req.timpris || scriptProps.TIMPRIS || 1200);
   var dryRunRequested = String(req.dryRun || "").toLowerCase().trim() === "true";
   var dryRunAuto = !companyId || !customerId;
@@ -97,7 +97,7 @@ function runPipeline(req) {
     );
   }
   if (!token) throw new Error("Missing token.");
-  if (!calendarUrl) throw new Error("Missing calendarUrl (or Script Property KALENDER_URL).");
+  if (!calendarUrl) throw new Error("Missing calendarUrl (or Script Property KALENDER_TIDRAPPORT_URL).");
   if (!/^\d{4}-\d{2}$/.test(yearMonth)) throw new Error("yearMonth must be yyyy-mm.");
   if (!timpris || timpris <= 0) throw new Error("timpris must be > 0.");
 
