@@ -90,7 +90,18 @@ I [webbdemon](https://www.larswpettersson.se/projects/fakturera-tid-med-bokio) k
 
 Publicerad demo (GitHub Pages):
 
-[Bokiofaktura med Tidrapport GCAL/Outlook](https://larswpettersson.github.io/KalenderTidrapport/Javascript/bokiofaktura-tidrapport-gcal-outlook/)
+[KalenderTidrapport](https://larswpettersson.github.io/KalenderTidrapport/) - startsida med
+en meny med två flikar:
+
+- **Tidrapport** - fristående, skrivskyddad sida som bara listar `ics2tidrapport.py`-output
+  för ett `project` (prefix) och en `time`-period (`yyyy-mm`), utan Bokio-token eller synlig
+  kalenderlänk.
+- **Bokiofaktura** - hela flödet inklusive fakturautkast i Bokio.
+
+Direktlänkar till respektive sida:
+
+- [Tidrapport-export](https://larswpettersson.github.io/KalenderTidrapport/Javascript/tidrapport-export/)
+- [Bokiofaktura med Tidrapport GCAL/Outlook](https://larswpettersson.github.io/KalenderTidrapport/Javascript/bokiofaktura-tidrapport-gcal-outlook/)
 
 Exempel på länkformat:
 

@@ -77,8 +77,14 @@ To enable this, deploy the updated `Code.gs` from this folder so your `/exec` en
 
 ## Dry-run behavior
 
-If `companyId` or `customerId` is missing, pipeline runs in `dryRun` mode:
+If `companyId` or `customerId` is missing (or `dryRun=true` is passed explicitly), pipeline
+runs in `dryRun` mode:
 
 - Calendar parsing and aggregation still run.
 - `buildExportText(weekData)` output is returned.
 - No Bokio invoice create request is sent.
+- No `token`/`BOKIO_API_TOKEN` is required in this mode.
+
+Note: for a purely read-only tidrapport view with zero Bokio code in the deployment, use
+[`Javascript/gscript-tidrapport`](../gscript-tidrapport/) instead — this project (`gscript`)
+still contains the Bokio invoice-creation code path and is meant for the invoicing demo.

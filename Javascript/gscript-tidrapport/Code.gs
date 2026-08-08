@@ -1,107 +1,58 @@
 /**
- * Google Apps Script Web App backend for:
- * ./fakturera_kund.sh <yyyy-mm> [prefix]
+ * Google Apps Script Web App backend for the read-only tidrapport-export page.
  *
- * Request body (text/plain JSON) for POST, or query params for GET:
+ * This script fetches an ICS calendar and returns an aggregated text export. This is a
+ * deliberately separate, minimal deployment from Javascript/gscript/Code.gs (which
+ * also creates Bokio invoices).
+ *
+ * Request (GET query params):
  * {
- *   "action": "runPipeline",
- *   "token": "BOKIO_API_TOKEN",
+ *   "action": "getTidrapport",
  *   "yearMonth": "2026-04",
- *   "prefix": "ACME",
- *   "companyId": "...",
- *   "customerId": "...",
- *   "calendarUrl": "https://.../basic.ics", // optional, falls back to Script Property KALENDER_TIDRAPPORT_URL
- *   "timpris": 1200                           // optional, fallback TIMPRIS script property, then 1200
+ *   "prefix": "ACME"
  * }
+ *
+ * Calendar URL is read only from Script Property KALENDER_TIDRAPPORT_URL — it is never
+ * accepted from the request.
  */
-function doPost(e) {
-  try {
-    var raw = (e && e.postData && e.postData.contents) || "";
-    var req = JSON.parse(raw || "{}");
-    return handleRequest(req);
-  } catch (err) {
-    return jsonResponse(500, { error: String(err) });
-  }
-}
-
 function doGet(e) {
   try {
     var req = parseGetRequest(e);
     return handleRequest(req);
   } catch (err) {
-    return jsonResponse(500, { error: String(err) });
+    return jsonResponse(500, { error: String(err) }, req && req.callback);
   }
 }
 
 function parseGetRequest(e) {
   var params = (e && e.parameter) || {};
-  var req = {
+  return {
     action: params.action,
-    token: params.token,
     yearMonth: params.yearMonth,
     prefix: params.prefix,
-    companyId: params.companyId,
-    customerId: params.customerId,
-    calendarUrl: params.calendarUrl,
-    timpris: params.timpris,
-    callback: params.callback,
+    callback: getJsonpCallbackName(params.callback),
   };
-
-  // Optional compact mode: payload=<JSON-string>
-  if (params.payload) {
-    var payloadReq = JSON.parse(String(params.payload));
-    Object.keys(payloadReq).forEach(function (k) {
-      req[k] = payloadReq[k];
-    });
-  }
-
-  return req;
 }
 
 function handleRequest(req) {
+  var callback = req && req.callback;
   var action = String((req && req.action) || "").trim();
-  var callback = getJsonpCallbackName(req && req.callback);
-  if (action !== "runPipeline") {
-    return jsonResponse(
-      400,
-      { error: "Unsupported action. Use action=runPipeline." },
-      callback
-    );
+  if (action !== "getTidrapport") {
+    return jsonResponse(400, { error: "Unsupported action. Use action=getTidrapport." }, callback);
   }
 
-  var result = runPipeline(req || {});
+  var result = getTidrapport(req || {});
   return jsonResponse(200, result, callback);
 }
 
-function runPipeline(req) {
+function getTidrapport(req) {
   var scriptProps = PropertiesService.getScriptProperties().getProperties();
-  var allowTokenFromRequest = String(scriptProps.ALLOW_TOKEN_FROM_REQUEST || "")
-    .toLowerCase()
-    .trim() === "true";
-  var tokenFromRequest = String(req.token || "").trim();
-  var tokenFromScriptProps = String(scriptProps.BOKIO_API_TOKEN || "").trim();
-  var token = tokenFromScriptProps || (allowTokenFromRequest ? tokenFromRequest : "");
   var yearMonth = String(req.yearMonth || "").trim();
   var prefix = String(req.prefix || "").trim();
-  var companyId = String(req.companyId || "").trim();
-  var customerId = String(req.customerId || "").trim();
-  var calendarUrl = String(req.calendarUrl || scriptProps.KALENDER_TIDRAPPORT_URL || "").trim();
-  var timpris = Number(req.timpris || scriptProps.TIMPRIS || 1200);
-  var dryRunRequested = String(req.dryRun || "").toLowerCase().trim() === "true";
-  var dryRunAuto = !companyId || !customerId;
-  var dryRun = dryRunRequested || dryRunAuto;
+  var calendarUrl = String(scriptProps.KALENDER_TIDRAPPORT_URL || "").trim();
 
-  if (!dryRun) {
-    if (tokenFromRequest && !allowTokenFromRequest && !tokenFromScriptProps) {
-      throw new Error(
-        "Token in request is disabled. Store BOKIO_API_TOKEN in Script Properties, or set ALLOW_TOKEN_FROM_REQUEST=true."
-      );
-    }
-    if (!token) throw new Error("Missing token.");
-  }
-  if (!calendarUrl) throw new Error("Missing calendarUrl (or Script Property KALENDER_TIDRAPPORT_URL).");
+  if (!calendarUrl) throw new Error("Missing Script Property KALENDER_TIDRAPPORT_URL.");
   if (!/^\d{4}-\d{2}$/.test(yearMonth)) throw new Error("yearMonth must be yyyy-mm.");
-  if (!timpris || timpris <= 0) throw new Error("timpris must be > 0.");
 
   var icsResponse = UrlFetchApp.fetch(calendarUrl, { muteHttpExceptions: true });
   if (icsResponse.getResponseCode() >= 400) {
@@ -112,81 +63,21 @@ function runPipeline(req) {
   if (entries.length === 0) {
     return {
       message: "Ingen data hittades i kalendern för denna period/prefix.",
-      lineItemsCount: 0,
+      yearMonth: yearMonth,
+      prefix: prefix || "",
       entriesCount: 0,
       exportText: "",
     };
   }
 
-  var aggregates = aggregateEntries(entries);
-  var lineItems = buildLineItems(aggregates.dayProjectSum, timpris);
-  var exportText = buildExportText(aggregates.weekData);
-  if (lineItems.length === 0) {
-    return {
-      message: "Inga fakturerbara rader hittades.",
-      lineItemsCount: 0,
-      entriesCount: entries.length,
-      dryRun: true,
-      exportText: exportText,
-    };
-  }
-
-  if (dryRun) {
-    return {
-      message:
-        "Dry-run: fakturautkast skapades inte. Visar endast tidrapport/export från buildExportText().",
-      yearMonth: yearMonth,
-      prefix: prefix || "",
-      entriesCount: entries.length,
-      lineItemsCount: lineItems.length,
-      dryRun: true,
-      exportText: exportText,
-    };
-  }
-
-  if (!companyId) throw new Error("Missing companyId.");
-  if (!customerId) throw new Error("Missing customerId.");
-
-  var now = new Date();
-  var invoiceDate = toDateString(now);
-  var dueDate = toDateString(new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000));
-  var bokioPayload = {
-    customerId: customerId,
-    invoiceDate: invoiceDate,
-    dueDate: dueDate,
-    currency: "SEK",
-    lineItems: lineItems,
-    footerText: "Tack för förtroendet! Bifogar detaljerad tidrapport.",
-  };
-
-  var bokioResponse = UrlFetchApp.fetch(
-    "https://api.bokio.se/v1/companies/" + encodeURIComponent(companyId) + "/invoices",
-    {
-      method: "post",
-      contentType: "application/json",
-      headers: { Authorization: "Bearer " + token },
-      payload: JSON.stringify(bokioPayload),
-      muteHttpExceptions: true,
-    }
-  );
-
-  var status = bokioResponse.getResponseCode();
-  var raw = bokioResponse.getContentText();
-  var parsed = tryParseJson(raw);
-  if (status < 200 || status > 201) {
-    throw new Error("Bokio API error HTTP " + status + ": " + (raw || "unknown"));
-  }
+  var weekData = aggregateEntries(entries);
+  var exportText = buildExportText(weekData);
 
   return {
-    message: "Fakturautkast skapat i Bokio.",
+    message: "Tidrapport hämtad.",
     yearMonth: yearMonth,
     prefix: prefix || "",
-    companyId: companyId,
-    customerId: customerId,
     entriesCount: entries.length,
-    lineItemsCount: lineItems.length,
-    dryRun: false,
-    invoice: parsed || raw,
     exportText: exportText,
   };
 }
@@ -246,16 +137,12 @@ function extractEntriesFromIcs(icsText, yearMonth, prefix) {
 }
 
 function aggregateEntries(entries) {
-  var dayProjectSum = {};
   var weekData = {}; // key: "year-week" -> { year, week, projects: { subject: [7dayHours] } }
 
   entries.forEach(function (entry) {
     var subject = String(entry.subject || "").trim();
     if (!subject || subject.toLowerCase() === "friskvård") return;
     if (entry.duration <= 0) return;
-
-    var key = entry.startDate + "||" + subject;
-    dayProjectSum[key] = round2((dayProjectSum[key] || 0) + entry.duration);
 
     var iso = getIsoWeekParts(entry.start);
     var weekKey = iso.year + "-" + iso.week;
@@ -266,23 +153,7 @@ function aggregateEntries(entries) {
     );
   });
 
-  return { dayProjectSum: dayProjectSum, weekData: weekData };
-}
-
-function buildLineItems(dayProjectSum, timpris) {
-  var keys = Object.keys(dayProjectSum).sort();
-  return keys.map(function (k) {
-    var parts = k.split("||");
-    return {
-      description: parts[0] + " " + parts[1],
-      quantity: round2(dayProjectSum[k]),
-      unit: "h",
-      unitPrice: timpris,
-      taxRate: 25.0,
-      productType: 0,
-      itemType: 0,
-    };
-  });
+  return weekData;
 }
 
 function buildExportText(weekData) {
@@ -396,10 +267,6 @@ function afterColon(line) {
   return idx >= 0 ? line.substring(idx + 1) : "";
 }
 
-function toDateString(d) {
-  return Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
-}
-
 function round2(n) {
   return Math.round(n * 100) / 100;
 }
@@ -408,14 +275,6 @@ function padRight(s, width) {
   s = String(s || "");
   if (s.length >= width) return s;
   return s + new Array(width - s.length + 1).join(" ");
-}
-
-function tryParseJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch (_err) {
-    return null;
-  }
 }
 
 function jsonResponse(status, payload, callback) {
