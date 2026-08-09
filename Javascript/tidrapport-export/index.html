@@ -277,7 +277,7 @@
           const scriptlet = buildAgressoScriptlet(row.values);
           const originalLabel = button.textContent;
           try {
-            await navigator.clipboard.writeText(scriptlet);
+            await copyTextToClipboard(scriptlet);
             button.textContent = "Kopierat!";
           } catch (_err) {
             button.textContent = "Kunde inte kopiera";
@@ -285,6 +285,35 @@
           setTimeout(() => {
             button.textContent = originalLabel;
           }, 1500);
+        }
+
+        async function copyTextToClipboard(text) {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+              await navigator.clipboard.writeText(text);
+              return;
+            } catch (_err) {
+              // Blocked (e.g. Clipboard API disallowed in a cross-origin iframe such as a
+              // Google Sites embed) — fall back to the legacy execCommand approach below.
+            }
+          }
+
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.style.position = "fixed";
+          textarea.style.top = "0";
+          textarea.style.left = "0";
+          textarea.style.opacity = "0";
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          let copied = false;
+          try {
+            copied = document.execCommand("copy");
+          } finally {
+            document.body.removeChild(textarea);
+          }
+          if (!copied) throw new Error("Copy command failed");
         }
 
         function buildAgressoScriptlet(values) {
