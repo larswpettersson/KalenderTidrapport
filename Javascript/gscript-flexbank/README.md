@@ -38,7 +38,8 @@ tidrapporten. Mailet varnar om sådana projektposter finns.
 2. **Project Settings → Script Properties**, lägg till:
    - `KALENDER_TIDRAPPORT_URL` = ICS-länken (samma som för tidrapporten).
    - `FLEX_PROJEKT_PREFIX` = ämnesprefixet för poster som räknas som arbetstid.
-   - `FLEX_RAPPORT_MOTTAGARE` = mottagarens e-postadress. Utan den skickas mailet till
+   - `FLEX_RAPPORT_MOTTAGARE` = mottagarens e-postadress. Flera adresser separeras med `;`,
+     t.ex. `anna@example.se; bo@example.se`. Utan den skickas mailet till
      kontot som äger skriptet.
    - Valfritt: `FLEX_STARTDATUM` (`yyyy-mm-dd`) och `FLEX_INGAENDE_SALDO` (timmar, t.ex.
      `-1.5`).

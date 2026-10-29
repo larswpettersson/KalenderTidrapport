@@ -15,7 +15,7 @@
  * Script Properties:
  * - KALENDER_TIDRAPPORT_URL   (required) ICS calendar URL.
  * - FLEX_PROJEKT_PREFIX       (required) subject prefix of the events that count as work.
- * - FLEX_RAPPORT_MOTTAGARE    recipient, defaults to the script owner's address.
+ * - FLEX_RAPPORT_MOTTAGARE    recipients separated by ";", defaults to the script owner's address.
  * - FLEX_STARTDATUM           yyyy-mm-dd, defaults to STANDARD_STARTDATUM.
  * - FLEX_INGAENDE_SALDO       opening balance in hours (e.g. "0", "-1.5"), defaults to 0.
  */
@@ -123,11 +123,23 @@ function getConfig() {
   return {
     calendarUrl: calendarUrl,
     prefix: prefix,
-    recipient:
-      String(props.FLEX_RAPPORT_MOTTAGARE || "").trim() || Session.getEffectiveUser().getEmail(),
+    recipient: parseRecipients(props.FLEX_RAPPORT_MOTTAGARE) || Session.getEffectiveUser().getEmail(),
     startKey: startKey,
     openingMinutes: Math.round(opening * 60),
   };
+}
+
+// "a@x.se; b@y.se" -> "a@x.se,b@y.se" (MailApp expects comma-separated addresses).
+function parseRecipients(value) {
+  return String(value || "")
+    .split(/[;,]/)
+    .map(function (s) {
+      return s.trim();
+    })
+    .filter(function (s) {
+      return s;
+    })
+    .join(",");
 }
 
 // ---------------------------------------------------------------------------
