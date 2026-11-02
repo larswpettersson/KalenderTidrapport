@@ -21,21 +21,28 @@
  * - FLEX_VERKSAMHET           built-in rule set in VERKSAMHETER, defaults to "trafikverket".
  * - FLEX_REGLER               own rules as JSON, same shape as a VERKSAMHETER entry. Fields
  *                             left out are taken from the FLEX_VERKSAMHET rule set.
+ * - FLEX_ARBETSTIDSFORM       "flextid" or "förtroendearbetstid", overrides the rule set.
  */
 
 var TIDSZON = "Europe/Stockholm";
 var STANDARD_STARTDATUM = "2026-05-15";
 
 // Working-time rules per organisation (verksamhet).
+// - arbetstidsform:  "flextid" (regulated working time) or "förtroendearbetstid". With
+//                    förtroendearbetstid there are no scheduled shortened days.
 // - normtidTimmar:   normal hours per weekday for full time.
 // - fridagar:        weekdays that are days off (normal time 0).
 // - forkortadeDagar: days whose normal time is shortened by `timmar`, optionally only
 //                    when the day falls on one of `veckodagar` (mån, tis, ons, tor, fre).
+// - nationaldagKompensation: when the national day falls on a weekend it is compensated
+//                    with one day off. Mark that day in the calendar with an all-day event
+//                    containing "nationaldag"; it then gets normal time 0.
 // Days are given by name (see namedDays) or as "MM-DD", e.g. "12-23".
 var STANDARD_VERKSAMHET = "trafikverket";
 var VERKSAMHETER = {
   trafikverket: {
     namn: "Trafikverket",
+    arbetstidsform: "förtroendearbetstid",
     normtidTimmar: 8,
     fridagar: [
       "nyårsdagen",
@@ -51,7 +58,8 @@ var VERKSAMHETER = {
       "annandag jul",
       "nyårsafton",
     ],
-    // Förkortade arbetsdagar för den som omfattas av reglerna om flextid.
+    // Förkortade arbetsdagar för den som omfattas av reglerna om flextid. Med
+    // förtroendearbetstid finns ingen schemalagd arbetstidsförkortning.
     forkortadeDagar: [
       { dag: "trettondagsafton", timmar: 4 },
       { dag: "skärtorsdagen", timmar: 2 },
@@ -60,8 +68,13 @@ var VERKSAMHETER = {
       { dag: "allhelgonaafton", timmar: 4 },
       { dag: "12-23", veckodagar: ["fre"], timmar: 4 },
     ],
+    // Affärsverksavtalet 15 § 1.3: nationaldag på helg ger en ledig arbetsdag vid heltid.
+    // Med flextid går 8 h till kompbanken; tas dagen ut som "Kompledig" blir normtiden 0.
+    nationaldagKompensation: true,
   },
 };
+
+var ARBETSTIDSFORMER = { flextid: true, "förtroendearbetstid": true };
 
 // All-day events starting with one of these words make the day's normal time 0.
 // Timed events with these words count as time worked (e.g. a sick afternoon).
@@ -154,7 +167,7 @@ function getConfig() {
   var opening = Number(String(props.FLEX_INGAENDE_SALDO || "0").replace(",", "."));
   if (isNaN(opening)) throw new Error("FLEX_INGAENDE_SALDO must be a number of hours.");
 
-  var rules = getRules(props.FLEX_VERKSAMHET, props.FLEX_REGLER);
+  var rules = getRules(props.FLEX_VERKSAMHET, props.FLEX_REGLER, props.FLEX_ARBETSTIDSFORM);
 
   return {
     calendarUrl: calendarUrl,
@@ -166,7 +179,7 @@ function getConfig() {
   };
 }
 
-function getRules(verksamhet, customJson) {
+function getRules(verksamhet, customJson, arbetstidsform) {
   var key = String(verksamhet || STANDARD_VERKSAMHET).trim().toLowerCase();
   var base = VERKSAMHETER[key];
   if (!base) {
@@ -184,11 +197,24 @@ function getRules(verksamhet, customJson) {
     }
   }
 
+  var form = String(arbetstidsform || custom.arbetstidsform || base.arbetstidsform || "flextid")
+    .trim()
+    .toLowerCase()
+    .replace("fortroende", "förtroende");
+  if (!ARBETSTIDSFORMER[form]) {
+    throw new Error("Unknown arbetstidsform \"" + form + "\". Use flextid or förtroendearbetstid.");
+  }
+
   var rules = {
     namn: custom.namn || base.namn,
+    arbetstidsform: form,
     normtidTimmar: custom.normtidTimmar != null ? Number(custom.normtidTimmar) : base.normtidTimmar,
     fridagar: custom.fridagar || base.fridagar,
     forkortadeDagar: custom.forkortadeDagar || base.forkortadeDagar,
+    nationaldagKompensation:
+      custom.nationaldagKompensation != null
+        ? !!custom.nationaldagKompensation
+        : !!base.nationaldagKompensation,
   };
   if (!(rules.normtidTimmar > 0)) throw new Error("normtidTimmar must be a positive number.");
   resolveRuleDays(rules, 2026); // throws on unknown day names or weekdays
@@ -271,15 +297,20 @@ function computeFlexDays(events, config, endKey) {
   var openingMinutes = config.openingMinutes;
   var intervalsByDay = {};
   var absenceDays = {};
+  var nationalDayMarks = [];
   var recurringCount = 0;
 
   events.forEach(function (ev) {
     if (ev.status === "CANCELLED") return;
     var isWork = matchesProject(ev.summary, config.prefix);
+    var allDayStart = parseIcsDate(ev.dtstart);
+    if (!isWork && allDayStart && /nationaldag/i.test(ev.summary || "")) {
+      nationalDayMarks.push(allDayStart);
+      return;
+    }
     var isAbsence = !isWork && matchesAbsence(ev.summary);
     if (!isWork && !isAbsence) return;
 
-    var allDayStart = parseIcsDate(ev.dtstart);
     if (allDayStart) {
       if (!isAbsence) return;
       var allDayEnd = parseIcsDate(ev.dtend) || addDays(allDayStart, 1);
@@ -296,6 +327,11 @@ function computeFlexDays(events, config, endKey) {
     if (!intervalsByDay[key]) intervalsByDay[key] = [];
     intervalsByDay[key].push([start.getTime(), end.getTime()]);
   });
+
+  var warnings = [];
+  if (config.rules.nationaldagKompensation) {
+    applyNationalDayCompensation(nationalDayMarks, absenceDays, config.rules, startKey, endKey, warnings);
+  }
 
   var holidayCache = {};
   var days = [];
@@ -315,7 +351,43 @@ function computeFlexDays(events, config, endKey) {
     });
   }
 
-  return { days: days, openingMinutes: openingMinutes || 0, recurringCount: recurringCount };
+  return {
+    days: days,
+    openingMinutes: openingMinutes || 0,
+    recurringCount: recurringCount,
+    warnings: warnings,
+  };
+}
+
+// The national day on a Saturday or Sunday is compensated with one day off per year: the
+// first weekday on or after 6 June that is marked with an all-day "nationaldag" event.
+function applyNationalDayCompensation(marks, absenceDays, rules, startKey, endKey, warnings) {
+  marks.sort();
+  for (var year = Number(startKey.substring(0, 4)); year <= Number(endKey.substring(0, 4)); year++) {
+    var nationalDay = year + "-06-06";
+    var weekday = dayKeyToUtc(nationalDay).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) continue;
+
+    var compDay = null;
+    for (var i = 0; i < marks.length && !compDay; i++) {
+      var w = dayKeyToUtc(marks[i]).getUTCDay();
+      if (marks[i] >= nationalDay && marks[i].substring(0, 4) === String(year) && w !== 0 && w !== 6) {
+        compDay = marks[i];
+      }
+    }
+    if (compDay) {
+      absenceDays[compDay] = "Kompensation för nationaldagen";
+    } else if (rules.arbetstidsform === "förtroendearbetstid" && endKey >= nationalDay && startKey <= nationalDay) {
+      warnings.push(
+        "Nationaldagen " +
+          year +
+          " föll på en " +
+          (weekday === 6 ? "lördag" : "söndag") +
+          " och kompenseras med en ledig dag. Lägg in dagen ni kommit överens om som heldagspost " +
+          'med "Nationaldagen" i ämnet, så räknas den med normtid 0.'
+      );
+    }
+  }
 }
 
 // Overlapping events on the same day are only counted once.
@@ -384,6 +456,7 @@ function resolveRuleDays(rules, year) {
       });
       if (allowed.indexOf(dayKeyToUtc(day.key).getUTCDay()) < 0) return;
     }
+    if (rules.arbetstidsform === "förtroendearbetstid") return;
     var current = forkortade[day.key];
     if (!current || minutes > current.minutes) forkortade[day.key] = { label: day.label, minutes: minutes };
   });
@@ -490,7 +563,7 @@ function buildReport(flex, periodFrom, periodTo, config) {
   });
 
   var subject = "Flexbank " + config.prefix + " " + periodLabel + ": " + formatFlex(closing);
-  var warnings = [];
+  var warnings = (flex.warnings || []).slice();
   if (flex.recurringCount > 0) {
     warnings.push(
       flex.recurringCount +
@@ -548,7 +621,9 @@ function buildReport(flex, periodFrom, periodTo, config) {
       config.rules.normtidTimmar +
       " h/vardag, regler för " +
       config.rules.namn +
-      "."
+      " (" +
+      config.rules.arbetstidsform +
+      ")."
   );
 
   var html = [];
@@ -628,7 +703,9 @@ function buildReport(flex, periodFrom, periodTo, config) {
       config.rules.normtidTimmar +
       " h/vardag, regler för " +
       escapeHtml(config.rules.namn) +
-      ".</p>"
+      " (" +
+      escapeHtml(config.rules.arbetstidsform) +
+      ").</p>"
   );
   html.push("</div>");
 
