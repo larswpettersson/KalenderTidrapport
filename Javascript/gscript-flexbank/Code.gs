@@ -18,16 +18,50 @@
  * - FLEX_RAPPORT_MOTTAGARE    recipients separated by ";", defaults to the script owner's address.
  * - FLEX_STARTDATUM           yyyy-mm-dd, defaults to STANDARD_STARTDATUM.
  * - FLEX_INGAENDE_SALDO       opening balance in hours (e.g. "0", "-1.5"), defaults to 0.
+ * - FLEX_VERKSAMHET           built-in rule set in VERKSAMHETER, defaults to "trafikverket".
+ * - FLEX_REGLER               own rules as JSON, same shape as a VERKSAMHETER entry. Fields
+ *                             left out are taken from the FLEX_VERKSAMHET rule set.
  */
 
 var TIDSZON = "Europe/Stockholm";
 var STANDARD_STARTDATUM = "2026-05-15";
 
-// Full-time state employee: 40 h per holiday-free week, 8 h per weekday.
-var NORMTID_TIMMAR = 8;
-// Shortened days before certain holidays (see swedishHolidays). Check against
-// Trafikverket's local working-time agreement and adjust if it differs.
-var FORKORTNING_TIMMAR = 2;
+// Working-time rules per organisation (verksamhet).
+// - normtidTimmar:   normal hours per weekday for full time.
+// - fridagar:        weekdays that are days off (normal time 0).
+// - forkortadeDagar: days whose normal time is shortened by `timmar`, optionally only
+//                    when the day falls on one of `veckodagar` (mån, tis, ons, tor, fre).
+// Days are given by name (see namedDays) or as "MM-DD", e.g. "12-23".
+var STANDARD_VERKSAMHET = "trafikverket";
+var VERKSAMHETER = {
+  trafikverket: {
+    namn: "Trafikverket",
+    normtidTimmar: 8,
+    fridagar: [
+      "nyårsdagen",
+      "trettondedag jul",
+      "långfredagen",
+      "annandag påsk",
+      "första maj",
+      "kristi himmelsfärdsdag",
+      "nationaldagen",
+      "midsommarafton",
+      "julafton",
+      "juldagen",
+      "annandag jul",
+      "nyårsafton",
+    ],
+    // Förkortade arbetsdagar för den som omfattas av reglerna om flextid.
+    forkortadeDagar: [
+      { dag: "trettondagsafton", timmar: 4 },
+      { dag: "skärtorsdagen", timmar: 2 },
+      { dag: "valborgsmässoafton", veckodagar: ["mån", "tis", "ons", "tor"], timmar: 2 },
+      { dag: "valborgsmässoafton", veckodagar: ["fre"], timmar: 4 },
+      { dag: "allhelgonaafton", timmar: 4 },
+      { dag: "12-23", veckodagar: ["fre"], timmar: 4 },
+    ],
+  },
+};
 
 // All-day events starting with one of these words make the day's normal time 0.
 // Timed events with these words count as time worked (e.g. a sick afternoon).
@@ -93,7 +127,7 @@ function sendFlexReport(periodFrom, periodTo) {
   }
 
   var events = extractEvents(icsResponse.getContentText());
-  var flex = computeFlexDays(events, config.prefix, config.startKey, periodTo, config.openingMinutes);
+  var flex = computeFlexDays(events, config, periodTo);
   var report = buildReport(flex, periodFrom, periodTo, config);
 
   MailApp.sendEmail({
@@ -120,13 +154,45 @@ function getConfig() {
   var opening = Number(String(props.FLEX_INGAENDE_SALDO || "0").replace(",", "."));
   if (isNaN(opening)) throw new Error("FLEX_INGAENDE_SALDO must be a number of hours.");
 
+  var rules = getRules(props.FLEX_VERKSAMHET, props.FLEX_REGLER);
+
   return {
     calendarUrl: calendarUrl,
     prefix: prefix,
     recipient: parseRecipients(props.FLEX_RAPPORT_MOTTAGARE) || Session.getEffectiveUser().getEmail(),
     startKey: startKey,
     openingMinutes: Math.round(opening * 60),
+    rules: rules,
   };
+}
+
+function getRules(verksamhet, customJson) {
+  var key = String(verksamhet || STANDARD_VERKSAMHET).trim().toLowerCase();
+  var base = VERKSAMHETER[key];
+  if (!base) {
+    throw new Error(
+      "Unknown FLEX_VERKSAMHET \"" + key + "\". Use one of: " + Object.keys(VERKSAMHETER).join(", ") + "."
+    );
+  }
+
+  var custom = {};
+  if (String(customJson || "").trim()) {
+    try {
+      custom = JSON.parse(customJson);
+    } catch (err) {
+      throw new Error("FLEX_REGLER is not valid JSON: " + err.message);
+    }
+  }
+
+  var rules = {
+    namn: custom.namn || base.namn,
+    normtidTimmar: custom.normtidTimmar != null ? Number(custom.normtidTimmar) : base.normtidTimmar,
+    fridagar: custom.fridagar || base.fridagar,
+    forkortadeDagar: custom.forkortadeDagar || base.forkortadeDagar,
+  };
+  if (!(rules.normtidTimmar > 0)) throw new Error("normtidTimmar must be a positive number.");
+  resolveRuleDays(rules, 2026); // throws on unknown day names or weekdays
+  return rules;
 }
 
 // "a@x.se; b@y.se" -> "a@x.se,b@y.se" (MailApp expects comma-separated addresses).
@@ -200,14 +266,16 @@ function matchesAbsence(subject) {
 // ---------------------------------------------------------------------------
 // Flex calculation (all amounts in minutes)
 
-function computeFlexDays(events, prefix, startKey, endKey, openingMinutes) {
+function computeFlexDays(events, config, endKey) {
+  var startKey = config.startKey;
+  var openingMinutes = config.openingMinutes;
   var intervalsByDay = {};
   var absenceDays = {};
   var recurringCount = 0;
 
   events.forEach(function (ev) {
     if (ev.status === "CANCELLED") return;
-    var isWork = matchesProject(ev.summary, prefix);
+    var isWork = matchesProject(ev.summary, config.prefix);
     var isAbsence = !isWork && matchesAbsence(ev.summary);
     if (!isWork && !isAbsence) return;
 
@@ -233,7 +301,7 @@ function computeFlexDays(events, prefix, startKey, endKey, openingMinutes) {
   var days = [];
   var saldo = openingMinutes || 0;
   for (var day = startKey; day <= endKey; day = addDays(day, 1)) {
-    var norm = dayNorm(day, absenceDays, holidayCache);
+    var norm = dayNorm(day, absenceDays, config.rules, holidayCache);
     var worked = mergedMinutes(intervalsByDay[day]);
     var flex = worked - norm.minutes;
     saldo += flex;
@@ -272,54 +340,100 @@ function mergedMinutes(intervals) {
   return Math.round(total / 60000);
 }
 
-function dayNorm(key, absenceDays, holidayCache) {
+function dayNorm(key, absenceDays, rules, holidayCache) {
   var year = Number(key.substring(0, 4));
-  if (!holidayCache[year]) holidayCache[year] = swedishHolidays(year);
-  var holidays = holidayCache[year];
+  if (!holidayCache[year]) holidayCache[year] = resolveRuleDays(rules, year);
+  var ruleDays = holidayCache[year];
 
   var weekday = dayKeyToUtc(key).getUTCDay();
   if (weekday === 0 || weekday === 6) return { minutes: 0, note: "" };
-  if (holidays.fria[key]) return { minutes: 0, note: holidays.fria[key] };
+  if (ruleDays.fria[key]) return { minutes: 0, note: ruleDays.fria[key] };
   if (absenceDays[key]) return { minutes: 0, note: absenceDays[key] };
 
-  var full = NORMTID_TIMMAR * 60;
-  if (holidays.forkortade[key]) {
+  var full = Math.round(rules.normtidTimmar * 60);
+  var shortened = ruleDays.forkortade[key];
+  if (shortened) {
     return {
-      minutes: full - FORKORTNING_TIMMAR * 60,
-      note: holidays.forkortade[key] + " (förkortad dag)",
+      minutes: Math.max(0, full - shortened.minutes),
+      note: shortened.label + " (förkortad " + formatHours(shortened.minutes) + ")",
     };
   }
   return { minutes: full, note: "" };
 }
 
-// Days off for state employees (only weekdays matter) and shortened days before holidays.
-function swedishHolidays(year) {
-  var easter = easterSunday(year);
-  var y = String(year);
+// Applies a rule set to one year: { fria: {key: label}, forkortade: {key: {label, minutes}} }.
+function resolveRuleDays(rules, year) {
+  var named = namedDays(year);
   var fria = {};
   var forkortade = {};
 
-  fria[y + "-01-01"] = "Nyårsdagen";
-  fria[y + "-01-06"] = "Trettondedag jul";
-  fria[addDays(easter, -2)] = "Långfredagen";
-  fria[addDays(easter, 1)] = "Annandag påsk";
-  fria[y + "-05-01"] = "Första maj";
-  fria[addDays(easter, 39)] = "Kristi himmelsfärdsdag";
-  fria[y + "-06-06"] = "Sveriges nationaldag";
-  fria[firstWeekdayOnOrAfter(y + "-06-19", 5)] = "Midsommarafton";
-  fria[y + "-12-24"] = "Julafton";
-  fria[y + "-12-25"] = "Juldagen";
-  fria[y + "-12-26"] = "Annandag jul";
-  fria[y + "-12-31"] = "Nyårsafton";
+  rules.fridagar.forEach(function (name) {
+    var day = resolveDay(name, year, named);
+    fria[day.key] = day.label;
+  });
 
-  forkortade[y + "-01-05"] = "Trettondagsafton";
-  forkortade[addDays(easter, -3)] = "Skärtorsdagen";
-  forkortade[y + "-04-30"] = "Valborgsmässoafton";
-  forkortade[addDays(easter, 38)] = "Dagen före Kristi himmelsfärdsdag";
-  forkortade[y + "-06-05"] = "Dagen före nationaldagen";
-  forkortade[addDays(firstWeekdayOnOrAfter(y + "-10-31", 6), -1)] = "Allhelgonaafton";
+  rules.forkortadeDagar.forEach(function (rule) {
+    var day = resolveDay(rule.dag, year, named);
+    var minutes = Math.round(Number(rule.timmar) * 60);
+    if (!(minutes > 0)) throw new Error("forkortadeDagar: timmar must be positive for " + rule.dag + ".");
+    if (rule.veckodagar) {
+      var allowed = rule.veckodagar.map(function (w) {
+        var idx = VECKODAGAR.indexOf(String(w).trim().toLowerCase().substring(0, 3));
+        if (idx < 0) throw new Error("forkortadeDagar: unknown veckodag \"" + w + "\".");
+        return idx;
+      });
+      if (allowed.indexOf(dayKeyToUtc(day.key).getUTCDay()) < 0) return;
+    }
+    var current = forkortade[day.key];
+    if (!current || minutes > current.minutes) forkortade[day.key] = { label: day.label, minutes: minutes };
+  });
 
   return { fria: fria, forkortade: forkortade };
+}
+
+function resolveDay(name, year, named) {
+  var n = String(name || "").trim().toLowerCase();
+  if (named[n]) return named[n];
+  var m = n.match(/^(\d{2})-(\d{2})$/);
+  if (m) return { key: year + "-" + n, label: Number(m[2]) + " " + MANADSNAMN[Number(m[1]) - 1] };
+  throw new Error(
+    "Unknown day \"" + name + "\". Use \"MM-DD\" or one of: " + Object.keys(named).join(", ") + "."
+  );
+}
+
+// Swedish holidays and eves that rules can refer to by name.
+function namedDays(year) {
+  var easter = easterSunday(year);
+  var y = String(year);
+  var allSaints = firstWeekdayOnOrAfter(y + "-10-31", 6);
+  var midsummerEve = firstWeekdayOnOrAfter(y + "-06-19", 5);
+  var list = [
+    ["nyårsdagen", "Nyårsdagen", y + "-01-01"],
+    ["trettondagsafton", "Trettondagsafton", y + "-01-05"],
+    ["trettondedag jul", "Trettondedag jul", y + "-01-06"],
+    ["skärtorsdagen", "Skärtorsdagen", addDays(easter, -3)],
+    ["långfredagen", "Långfredagen", addDays(easter, -2)],
+    ["påskafton", "Påskafton", addDays(easter, -1)],
+    ["annandag påsk", "Annandag påsk", addDays(easter, 1)],
+    ["valborgsmässoafton", "Valborgsmässoafton", y + "-04-30"],
+    ["första maj", "Första maj", y + "-05-01"],
+    ["dagen före kristi himmelsfärdsdag", "Dagen före Kristi himmelsfärdsdag", addDays(easter, 38)],
+    ["kristi himmelsfärdsdag", "Kristi himmelsfärdsdag", addDays(easter, 39)],
+    ["dagen före nationaldagen", "Dagen före nationaldagen", y + "-06-05"],
+    ["nationaldagen", "Sveriges nationaldag", y + "-06-06"],
+    ["midsommarafton", "Midsommarafton", midsummerEve],
+    ["allhelgonaafton", "Allhelgonaafton", addDays(allSaints, -1)],
+    ["alla helgons dag", "Alla helgons dag", allSaints],
+    ["julafton", "Julafton", y + "-12-24"],
+    ["juldagen", "Juldagen", y + "-12-25"],
+    ["annandag jul", "Annandag jul", y + "-12-26"],
+    ["nyårsafton", "Nyårsafton", y + "-12-31"],
+  ];
+  var out = {};
+  list.forEach(function (d) {
+    out[d[0]] = { label: d[1], key: d[2] };
+  });
+  return out;
 }
 
 function easterSunday(year) {
@@ -431,8 +545,10 @@ function buildReport(flex, periodFrom, periodTo, config) {
     "Räknat på kalenderposter som börjar med \"" +
       config.prefix +
       "\", normtid " +
-      NORMTID_TIMMAR +
-      " h/vardag."
+      config.rules.normtidTimmar +
+      " h/vardag, regler för " +
+      config.rules.namn +
+      "."
   );
 
   var html = [];
@@ -509,8 +625,10 @@ function buildReport(flex, periodFrom, periodTo, config) {
       ". Räknat på kalenderposter som börjar med &quot;" +
       escapeHtml(config.prefix) +
       "&quot;, normtid " +
-      NORMTID_TIMMAR +
-      " h/vardag.</p>"
+      config.rules.normtidTimmar +
+      " h/vardag, regler för " +
+      escapeHtml(config.rules.namn) +
+      ".</p>"
   );
   html.push("</div>");
 
