@@ -37,6 +37,10 @@ Normtid, fria dagar och förkortade arbetsdagar hämtas från en regeluppsättni
   | 30 april, fredag | 4 h | – | fre 30 apr |
   | Dagen före alla helgons dag | 4 h | fre 30 okt | fre 5 nov |
   | 23 december, fredag | 4 h | – | – |
+
+  Tabellen gäller t.o.m. 2027 (`forkortadeDagarGiltigTill` = `2027-12-31`). Mail som gäller en
+  vecka från och med 30 november 2027 (en månad innan) varnar att reglerna behöver uppdateras. Efter
+  2027 används samma regler tills de uppdateras, och mailet fortsätter att varna.
 - **Nationaldagen på en helg** (Affärsverksavtalet 15 § 1.3) kompenseras med en ledig
   arbetsdag. Lägg in dagen som en heldagspost med "Nationaldagen" i ämnet, så får den
   normtid 0. Det gäller den första sådana vardagen från 6 juni samma år. Mailet varnar
@@ -60,6 +64,9 @@ regler som JSON i `FLEX_REGLER`. Fält som utelämnas i `FLEX_REGLER` hämtas fr
 }
 ```
 
+- `forkortadeDagarGiltigTill` (`yyyy-mm-dd`) är sista dagen de förkortade dagarna gäller.
+  Mailet varnar från en månad innan. Anger du egna `forkortadeDagar` utan datum varnar det
+  aldrig.
 - `nationaldagKompensation` (`true`/`false`) styr kompensationen för nationaldagen på helg.
 - `fridagar` är en lista med dagar som är lediga.
 - `forkortadeDagar` anger hur många timmar dagen förkortas. Med `veckodagar` gäller regeln

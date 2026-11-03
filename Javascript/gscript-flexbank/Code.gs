@@ -34,6 +34,8 @@ var STANDARD_STARTDATUM = "2026-05-15";
 // - nationaldagKompensation: when the national day falls on a weekend it is compensated
 //                    with one day off. Mark that day in the calendar with an all-day event
 //                    containing "nationaldag"; it then gets normal time 0.
+// - forkortadeDagarGiltigTill: last day (yyyy-mm-dd) the shortened days are known to apply.
+//                    The mail warns from one month before that day until the rules are updated.
 // Days are given by name (see namedDays) or as "MM-DD", e.g. "12-23".
 var STANDARD_VERKSAMHET = "trafikverket";
 var VERKSAMHETER = {
@@ -55,6 +57,8 @@ var VERKSAMHETER = {
       "nyårsafton",
     ],
     // Förkortade arbetsdagar enligt flextidsreglerna. De räknas alltid in i normtiden.
+    // Trafikverkets tabell anger datum för 2026 och 2027.
+    forkortadeDagarGiltigTill: "2027-12-31",
     forkortadeDagar: [
       { dag: "trettondagsafton", timmar: 4 },
       { dag: "skärtorsdagen", timmar: 2 },
@@ -194,12 +198,19 @@ function getRules(verksamhet, customJson) {
     normtidTimmar: custom.normtidTimmar != null ? Number(custom.normtidTimmar) : base.normtidTimmar,
     fridagar: custom.fridagar || base.fridagar,
     forkortadeDagar: custom.forkortadeDagar || base.forkortadeDagar,
+    // Own shortened days without a validity date never expire.
+    forkortadeDagarGiltigTill:
+      custom.forkortadeDagarGiltigTill ||
+      (custom.forkortadeDagar ? "" : base.forkortadeDagarGiltigTill || ""),
     nationaldagKompensation:
       custom.nationaldagKompensation != null
         ? !!custom.nationaldagKompensation
         : !!base.nationaldagKompensation,
   };
   if (!(rules.normtidTimmar > 0)) throw new Error("normtidTimmar must be a positive number.");
+  if (rules.forkortadeDagarGiltigTill && !/^\d{4}-\d{2}-\d{2}$/.test(rules.forkortadeDagarGiltigTill)) {
+    throw new Error("forkortadeDagarGiltigTill must be yyyy-mm-dd.");
+  }
   resolveRuleDays(rules, 2026); // throws on unknown day names or weekdays
   return rules;
 }
@@ -312,6 +323,8 @@ function computeFlexDays(events, config, endKey) {
   });
 
   var warnings = [];
+  var expiryWarning = rulesExpiryWarning(config.rules, endKey);
+  if (expiryWarning) warnings.push(expiryWarning);
   if (config.rules.nationaldagKompensation) {
     applyNationalDayCompensation(nationalDayMarks, absenceDays, config.rules, startKey, endKey, warnings);
   }
@@ -340,6 +353,33 @@ function computeFlexDays(events, config, endKey) {
     recurringCount: recurringCount,
     warnings: warnings,
   };
+}
+
+// Warns from one month before the shortened days' validity date, and after it has passed.
+function rulesExpiryWarning(rules, todayKey) {
+  var validTo = rules.forkortadeDagarGiltigTill;
+  if (!validTo) return "";
+  if (todayKey > validTo) {
+    return (
+      "Reglerna för förkortade arbetsdagar för " +
+      rules.namn +
+      " gällde t.o.m. " +
+      validTo +
+      ". De gamla reglerna används tills vidare. Uppdatera forkortadeDagar och " +
+      "forkortadeDagarGiltigTill i Code.gs (eller FLEX_REGLER)."
+    );
+  }
+  if (todayKey >= addMonths(validTo, -1)) {
+    return (
+      "Reglerna för förkortade arbetsdagar för " +
+      rules.namn +
+      " gäller t.o.m. " +
+      validTo +
+      ". Kontrollera nästa års förkortade dagar och uppdatera forkortadeDagar och " +
+      "forkortadeDagarGiltigTill i Code.gs (eller FLEX_REGLER)."
+    );
+  }
+  return "";
 }
 
 // The national day on a Saturday or Sunday is compensated with one day off per year: the
@@ -780,6 +820,16 @@ function parseIcsDateTime(value) {
 function dayKeyToUtc(key) {
   var p = key.split("-");
   return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+}
+
+// Same day n months away, clamped to the month's last day (e.g. 03-31 -> 02-28).
+function addMonths(key, n) {
+  var p = key.split("-");
+  var first = new Date(Date.UTC(+p[0], +p[1] - 1 + n, 1));
+  var lastDay = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  return (
+    first.getUTCFullYear() + "-" + pad2(first.getUTCMonth() + 1) + "-" + pad2(Math.min(+p[2], lastDay))
+  );
 }
 
 function addDays(key, n) {
