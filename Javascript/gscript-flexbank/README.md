@@ -21,14 +21,13 @@ måndag. Ingen webbsida behövs, allt körs i Apps Script med en tidsstyrd trigg
 Normtid, fria dagar och förkortade arbetsdagar hämtas från en regeluppsättning. Standard är
 `trafikverket`, som är inbyggd i `Code.gs` (`VERKSAMHETER`):
 
-- **Arbetstidsform:** förtroendearbetstid som standard. Byt med Script Property
-  `FLEX_ARBETSTIDSFORM` = `flextid` om du har reglerad arbetstid.
 - **Normtid:** 8 h per vardag. Klämdagar är vanliga arbetsdagar.
 - **Fria dagar:** nyårsdagen, trettondedag jul, långfredagen, annandag påsk, 1 maj, Kristi
   himmelsfärdsdag, nationaldagen, midsommarafton, julafton, juldagen, annandag jul och
   nyårsafton.
-- **Förkortade arbetsdagar** gäller bara med `flextid`. Med förtroendearbetstid finns ingen
-  schemalagd arbetstidsförkortning, och dagarna räknas som vanliga 8-timmarsdagar.
+- **Förkortade arbetsdagar** enligt flextidsreglerna räknas alltid in i normtiden. Saldot
+  visar då vad du bör arbeta, och kan användas som underlag när du ber om ledighet de
+  dagarna (t.ex. med förtroendearbetstid).
 
   | Dag | Förkortning | 2026 | 2027 |
   |---|---|---|---|
@@ -40,9 +39,8 @@ Normtid, fria dagar och förkortade arbetsdagar hämtas från en regeluppsättni
   | 23 december, fredag | 4 h | – | – |
 - **Nationaldagen på en helg** (Affärsverksavtalet 15 § 1.3) kompenseras med en ledig
   arbetsdag. Lägg in dagen som en heldagspost med "Nationaldagen" i ämnet, så får den
-  normtid 0. Det gäller den första sådana vardagen från 6 juni samma år. Med
-  förtroendearbetstid varnar mailet tills dagen är inlagd. Med flextid går 8 h i stället
-  till kompbanken. Tar du ut dem som en heldag "Kompledig" blir normtiden 0 den dagen.
+  normtid 0. Det gäller den första sådana vardagen från 6 juni samma år. Mailet varnar
+  tills dagen är inlagd.
 
 ### Egna regler
 
@@ -62,7 +60,6 @@ regler som JSON i `FLEX_REGLER`. Fält som utelämnas i `FLEX_REGLER` hämtas fr
 }
 ```
 
-- `arbetstidsform` är `flextid` eller `förtroendearbetstid`. `FLEX_ARBETSTIDSFORM` går före.
 - `nationaldagKompensation` (`true`/`false`) styr kompensationen för nationaldagen på helg.
 - `fridagar` är en lista med dagar som är lediga.
 - `forkortadeDagar` anger hur många timmar dagen förkortas. Med `veckodagar` gäller regeln
@@ -95,7 +92,7 @@ tidrapporten. Mailet varnar om sådana projektposter finns.
      t.ex. `anna@example.se; bo@example.se`. Utan den skickas mailet till
      kontot som äger skriptet.
    - Valfritt: `FLEX_STARTDATUM` (`yyyy-mm-dd`), `FLEX_INGAENDE_SALDO` (timmar, t.ex.
-     `-1.5`), `FLEX_VERKSAMHET`, `FLEX_ARBETSTIDSFORM` och `FLEX_REGLER` (se Regler per verksamhet).
+     `-1.5`), `FLEX_VERKSAMHET` och `FLEX_REGLER` (se Regler per verksamhet).
 3. Välj funktionen `sendFlexReportNow` och tryck **Run**. Godkänn behörigheterna
    (kalenderhämtning och mail). Du får direkt ett mail för senaste hela veckan.
 4. Välj `installWeeklyTrigger` och tryck **Run**. Därefter skickas rapporten för

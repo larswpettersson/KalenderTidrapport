@@ -21,15 +21,12 @@
  * - FLEX_VERKSAMHET           built-in rule set in VERKSAMHETER, defaults to "trafikverket".
  * - FLEX_REGLER               own rules as JSON, same shape as a VERKSAMHETER entry. Fields
  *                             left out are taken from the FLEX_VERKSAMHET rule set.
- * - FLEX_ARBETSTIDSFORM       "flextid" or "förtroendearbetstid", overrides the rule set.
  */
 
 var TIDSZON = "Europe/Stockholm";
 var STANDARD_STARTDATUM = "2026-05-15";
 
 // Working-time rules per organisation (verksamhet).
-// - arbetstidsform:  "flextid" (regulated working time) or "förtroendearbetstid". With
-//                    förtroendearbetstid there are no scheduled shortened days.
 // - normtidTimmar:   normal hours per weekday for full time.
 // - fridagar:        weekdays that are days off (normal time 0).
 // - forkortadeDagar: days whose normal time is shortened by `timmar`, optionally only
@@ -42,7 +39,6 @@ var STANDARD_VERKSAMHET = "trafikverket";
 var VERKSAMHETER = {
   trafikverket: {
     namn: "Trafikverket",
-    arbetstidsform: "förtroendearbetstid",
     normtidTimmar: 8,
     fridagar: [
       "nyårsdagen",
@@ -58,8 +54,7 @@ var VERKSAMHETER = {
       "annandag jul",
       "nyårsafton",
     ],
-    // Förkortade arbetsdagar för den som omfattas av reglerna om flextid. Med
-    // förtroendearbetstid finns ingen schemalagd arbetstidsförkortning.
+    // Förkortade arbetsdagar enligt flextidsreglerna. De räknas alltid in i normtiden.
     forkortadeDagar: [
       { dag: "trettondagsafton", timmar: 4 },
       { dag: "skärtorsdagen", timmar: 2 },
@@ -69,12 +64,9 @@ var VERKSAMHETER = {
       { dag: "12-23", veckodagar: ["fre"], timmar: 4 },
     ],
     // Affärsverksavtalet 15 § 1.3: nationaldag på helg ger en ledig arbetsdag vid heltid.
-    // Med flextid går 8 h till kompbanken; tas dagen ut som "Kompledig" blir normtiden 0.
     nationaldagKompensation: true,
   },
 };
-
-var ARBETSTIDSFORMER = { flextid: true, "förtroendearbetstid": true };
 
 // All-day events starting with one of these words make the day's normal time 0.
 // Timed events with these words count as time worked (e.g. a sick afternoon).
@@ -167,7 +159,7 @@ function getConfig() {
   var opening = Number(String(props.FLEX_INGAENDE_SALDO || "0").replace(",", "."));
   if (isNaN(opening)) throw new Error("FLEX_INGAENDE_SALDO must be a number of hours.");
 
-  var rules = getRules(props.FLEX_VERKSAMHET, props.FLEX_REGLER, props.FLEX_ARBETSTIDSFORM);
+  var rules = getRules(props.FLEX_VERKSAMHET, props.FLEX_REGLER);
 
   return {
     calendarUrl: calendarUrl,
@@ -179,7 +171,7 @@ function getConfig() {
   };
 }
 
-function getRules(verksamhet, customJson, arbetstidsform) {
+function getRules(verksamhet, customJson) {
   var key = String(verksamhet || STANDARD_VERKSAMHET).trim().toLowerCase();
   var base = VERKSAMHETER[key];
   if (!base) {
@@ -197,17 +189,8 @@ function getRules(verksamhet, customJson, arbetstidsform) {
     }
   }
 
-  var form = String(arbetstidsform || custom.arbetstidsform || base.arbetstidsform || "flextid")
-    .trim()
-    .toLowerCase()
-    .replace("fortroende", "förtroende");
-  if (!ARBETSTIDSFORMER[form]) {
-    throw new Error("Unknown arbetstidsform \"" + form + "\". Use flextid or förtroendearbetstid.");
-  }
-
   var rules = {
     namn: custom.namn || base.namn,
-    arbetstidsform: form,
     normtidTimmar: custom.normtidTimmar != null ? Number(custom.normtidTimmar) : base.normtidTimmar,
     fridagar: custom.fridagar || base.fridagar,
     forkortadeDagar: custom.forkortadeDagar || base.forkortadeDagar,
@@ -377,7 +360,7 @@ function applyNationalDayCompensation(marks, absenceDays, rules, startKey, endKe
     }
     if (compDay) {
       absenceDays[compDay] = "Kompensation för nationaldagen";
-    } else if (rules.arbetstidsform === "förtroendearbetstid" && endKey >= nationalDay && startKey <= nationalDay) {
+    } else if (endKey >= nationalDay && startKey <= nationalDay) {
       warnings.push(
         "Nationaldagen " +
           year +
@@ -456,7 +439,6 @@ function resolveRuleDays(rules, year) {
       });
       if (allowed.indexOf(dayKeyToUtc(day.key).getUTCDay()) < 0) return;
     }
-    if (rules.arbetstidsform === "förtroendearbetstid") return;
     var current = forkortade[day.key];
     if (!current || minutes > current.minutes) forkortade[day.key] = { label: day.label, minutes: minutes };
   });
@@ -621,9 +603,7 @@ function buildReport(flex, periodFrom, periodTo, config) {
       config.rules.normtidTimmar +
       " h/vardag, regler för " +
       config.rules.namn +
-      " (" +
-      config.rules.arbetstidsform +
-      ")."
+      "."
   );
 
   var html = [];
@@ -703,9 +683,7 @@ function buildReport(flex, periodFrom, periodTo, config) {
       config.rules.normtidTimmar +
       " h/vardag, regler för " +
       escapeHtml(config.rules.namn) +
-      " (" +
-      escapeHtml(config.rules.arbetstidsform) +
-      ").</p>"
+      ".</p>"
   );
   html.push("</div>");
 
