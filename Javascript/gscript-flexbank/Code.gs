@@ -292,6 +292,7 @@ function computeFlexDays(events, config, endKey) {
   var intervalsByDay = {};
   var absenceDays = {};
   var nationalDayMarks = [];
+  var areaMinutes = {}; // subject -> { day: minutes }, summed like the tidrapport
   var recurringCount = 0;
 
   events.forEach(function (ev) {
@@ -320,6 +321,11 @@ function computeFlexDays(events, config, endKey) {
     if (ev.recurring && isWork) recurringCount++;
     if (!intervalsByDay[key]) intervalsByDay[key] = [];
     intervalsByDay[key].push([start.getTime(), end.getTime()]);
+    if (isWork) {
+      var area = String(ev.summary).trim();
+      if (!areaMinutes[area]) areaMinutes[area] = {};
+      areaMinutes[area][key] = (areaMinutes[area][key] || 0) + Math.round((end - start) / 60000);
+    }
   });
 
   var warnings = [];
@@ -352,6 +358,7 @@ function computeFlexDays(events, config, endKey) {
     openingMinutes: openingMinutes || 0,
     recurringCount: recurringCount,
     warnings: warnings,
+    areaMinutes: areaMinutes,
   };
 }
 
@@ -583,6 +590,7 @@ function buildReport(flex, periodFrom, periodTo, config) {
   var specialDays = inPeriod.filter(function (d) {
     return d.note;
   });
+  var areas = buildAreaTable(flex.areaMinutes || {}, inPeriod);
 
   var subject = "Flexbank " + config.prefix + " " + periodLabel + ": " + formatFlex(closing);
   var warnings = (flex.warnings || []).slice();
@@ -597,6 +605,7 @@ function buildReport(flex, periodFrom, periodTo, config) {
 
   var text = [];
   text.push("Flexsaldo " + formatFlex(closing) + " (t.o.m. " + periodTo + ")");
+  text.push("Flex beräknas för prefix: " + config.prefix);
   text.push("");
   text.push("Period " + periodFrom + " – " + periodTo + " (" + periodLabel + ")");
   text.push("  Arbetat:  " + formatHours(periodSum.worked));
@@ -615,6 +624,16 @@ function buildReport(flex, periodFrom, periodTo, config) {
         formatFlex(g.lastSaldo)
     );
   });
+  if (areas.rows.length) {
+    text.push("");
+    text.push("Tider per arbetsområde (timmar)");
+    [[""].concat(areas.headers)].concat(areas.rows).forEach(function (r) {
+      var cells = r.slice(1).map(function (v) {
+        return padRight(v, 6);
+      });
+      text.push("  " + padRight(r[0], 20) + cells.join(""));
+    });
+  }
   if (specialDays.length) {
     text.push("");
     text.push("Särskilda dagar");
@@ -652,9 +671,14 @@ function buildReport(flex, periodFrom, periodTo, config) {
     '<p style="font-size:14px;margin:0">Flexsaldo t.o.m. ' + escapeHtml(periodTo) + "</p>"
   );
   html.push(
-    '<p style="font-size:32px;font-weight:bold;margin:4px 0 16px">' +
+    '<p style="font-size:32px;font-weight:bold;margin:4px 0 4px">' +
       escapeHtml(formatFlex(closing)) +
       "</p>"
+  );
+  html.push(
+    '<p style="font-size:13px;color:#6b7280;margin:0 0 16px">Flex beräknas för prefix: <b>' +
+      escapeHtml(config.prefix) +
+      "</b></p>"
   );
   html.push(
     "<p>" +
@@ -681,6 +705,10 @@ function buildReport(flex, periodFrom, periodTo, config) {
       })
     )
   );
+  if (areas.rows.length) {
+    html.push('<h3 style="font-size:15px;margin:20px 0 6px">Tider per arbetsområde (timmar)</h3>');
+    html.push(htmlTable(["Arbetsområde"].concat(areas.headers), areas.rows));
+  }
   if (specialDays.length) {
     html.push('<h3 style="font-size:15px;margin:20px 0 6px">Särskilda dagar</h3>');
     html.push(
@@ -728,6 +756,46 @@ function buildReport(flex, periodFrom, periodTo, config) {
   html.push("</div>");
 
   return { subject: subject, text: text.join("\n"), html: html.join("\n") };
+}
+
+// Rows of [subject, hours per weekday..., total] for the period, Mon-Fri like the tidrapport.
+// Saturday and Sunday are only added as columns if any hours were reported on them.
+function buildAreaTable(areaMinutes, periodDays) {
+  var subjects = Object.keys(areaMinutes)
+    .filter(function (a) {
+      return periodDays.some(function (d) {
+        return areaMinutes[a][d.date];
+      });
+    })
+    .sort();
+  var columns = periodDays.filter(function (d) {
+    var weekday = dayKeyToUtc(d.date).getUTCDay();
+    if (weekday !== 0 && weekday !== 6) return true;
+    return subjects.some(function (a) {
+      return areaMinutes[a][d.date];
+    });
+  });
+
+  var headers = columns.map(function (d) {
+    return VECKODAGAR[dayKeyToUtc(d.date).getUTCDay()];
+  });
+  headers.push("Summa");
+  var rows = subjects.map(function (a) {
+    var total = 0;
+    var row = [a];
+    columns.forEach(function (d) {
+      var minutes = areaMinutes[a][d.date] || 0;
+      total += minutes;
+      row.push(formatDecimalHours(minutes));
+    });
+    row.push(formatDecimalHours(total));
+    return row;
+  });
+  return { headers: headers, rows: rows };
+}
+
+function formatDecimalHours(minutes) {
+  return String(Math.round((minutes / 60) * 100) / 100);
 }
 
 function sumDays(days) {

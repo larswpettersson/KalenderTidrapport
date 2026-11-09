@@ -81,9 +81,13 @@ Felaktiga regler stoppar skriptet med ett felmeddelande i loggen.
 
 ## Mailet
 
-Mailet gäller förra veckan (mån–sön) och innehåller aktuellt saldo, veckans arbetade tid,
-normtid och flex, en tabell per dag, veckans särskilda dagar och en historik per månad
-sedan startdatumet.
+Mailet gäller förra veckan (mån–sön) och innehåller aktuellt saldo, vilket prefix flexen
+beräknas för, veckans arbetade tid, normtid och flex, en tabell per dag, veckans tider per
+arbetsområde, veckans särskilda dagar och en historik per månad sedan startdatumet.
+
+Tider per arbetsområde listar varje ämne som börjar med prefixet (t.ex. `<prefix>` och
+`<prefix> Linje`) med timmar per vardag, i samma format som tidrapporten. Lördag och
+söndag visas bara om det finns tid rapporterad då.
 
 Återkommande kalenderposter (`RRULE`) räknas bara första gången, precis som i
 tidrapporten. Mailet varnar om sådana projektposter finns.
